@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, Route, Routes } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   BadgeCheck,
@@ -798,54 +798,177 @@ function AuditLogPage() {
   );
 }
 
-function LoginPage() {
+type UserRole = 'user' | 'admin';
+
+type AuthUser = {
+  name: string;
+  email: string;
+  role: UserRole;
+};
+
+const demoAccounts: Array<AuthUser & { password: string }> = [
+  {
+    name: 'Nguyễn Văn A',
+    email: 'user@luckydraw.vn',
+    password: 'user123',
+    role: 'user',
+  },
+  {
+    name: 'Quản trị viên',
+    email: 'admin@luckydraw.vn',
+    password: 'admin123',
+    role: 'admin',
+  },
+];
+
+function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const changeMode = (nextMode: 'login' | 'register' | 'forgot') => {
+    setMode(nextMode);
+    setError('');
+    setNotice('');
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+
+    if (mode === 'forgot') {
+      if (!email.trim()) {
+        setError('Vui lòng nhập email để nhận hướng dẫn khôi phục.');
+        return;
+      }
+      setNotice('Nếu email tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi đến bạn.');
+      return;
+    }
+
+    if (mode === 'register') {
+      if (!fullName.trim() || !email.trim() || password.length < 6) {
+        setError('Vui lòng nhập đủ thông tin và mật khẩu có ít nhất 6 ký tự.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Mật khẩu xác nhận chưa khớp.');
+        return;
+      }
+      setNotice('Tạo tài khoản thành công. Bạn có thể đăng nhập ngay bây giờ.');
+      setMode('login');
+      setPassword('');
+      setConfirmPassword('');
+      return;
+    }
+
+    const account = demoAccounts.find((item) => item.email === email.trim().toLowerCase() && item.password === password);
+
+    if (!account) {
+      setError('Email hoặc mật khẩu chưa đúng.');
+      return;
+    }
+
+    onLogin(account);
+    navigate(account.role === 'admin' ? '/admin' : '/');
+  };
+
   return (
-    <div className="mx-auto max-w-md">
-      <div className="card-glass rounded-3xl p-8">
-        <div className="mb-6 flex items-center justify-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-violet-500 text-2xl font-black text-slate-950">
-            L
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-intro">
+          <div className="login-logo">L</div>
+          <div>
+            <div className="login-kicker">CỔNG MAY MẮN</div>
+            <div className="login-brand">LUCKYDRAW</div>
           </div>
         </div>
-        <h1 className="text-3xl font-black text-white text-center">Đăng nhập</h1>
-        <div className="mt-6 space-y-4">
+
+        <div className="mt-8">
+          <p className="login-eyebrow">{mode === 'login' ? 'KHU VỰC TRUY CẬP' : mode === 'register' ? 'THÀNH VIÊN MỚI' : 'KHÔI PHỤC TÀI KHOẢN'}</p>
+          <h1 className="login-title">{mode === 'login' ? 'Chào mừng trở lại.' : mode === 'register' ? 'Tạo tài khoản mới.' : 'Lấy lại quyền truy cập.'}</h1>
+          <p className="login-subtitle">{mode === 'login' ? 'Đăng nhập để tiếp tục hành trình săn giải thưởng của bạn.' : mode === 'register' ? 'Tham gia LuckyDraw và bắt đầu chọn những con số may mắn.' : 'Nhập email, chúng tôi sẽ hướng dẫn bạn đặt lại mật khẩu.'}</p>
+        </div>
+
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          {mode === 'register' && <div className="space-y-2">
+            <label className="login-label" htmlFor="register-name">Họ và tên</label>
+            <input id="register-name" value={fullName} onChange={(event) => setFullName(event.target.value)} className="login-input" placeholder="Nguyễn Văn A" autoComplete="name" />
+          </div>}
           <div className="space-y-2">
-            <label className="text-sm text-slate-300">Email</label>
-            <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white" placeholder="user@example.com" />
+            <label className="login-label" htmlFor="login-email">Email</label>
+            <input id="login-email" value={email} onChange={(event) => setEmail(event.target.value)} className="login-input" placeholder="you@example.com" type="email" autoComplete="email" />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm text-slate-300">Mật khẩu</label>
-            <input type="password" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white" placeholder="••••••••" />
-          </div>
-          <button className="primary-btn w-full rounded-xl px-4 py-3 font-bold">Đăng nhập</button>
+          {mode !== 'forgot' && <div className="space-y-2">
+            <label className="login-label" htmlFor="login-password">Mật khẩu</label>
+            <input id="login-password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" className="login-input" placeholder="Nhập mật khẩu" autoComplete="current-password" />
+          </div>}
+          {mode === 'register' && <div className="space-y-2">
+            <label className="login-label" htmlFor="confirm-password">Xác nhận mật khẩu</label>
+            <input id="confirm-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" className="login-input" placeholder="Nhập lại mật khẩu" autoComplete="new-password" />
+          </div>}
+          {mode === 'login' && <div className="login-form-options"><label className="login-remember"><input type="checkbox" /> Ghi nhớ đăng nhập</label><button type="button" className="login-link" onClick={() => changeMode('forgot')}>Quên mật khẩu?</button></div>}
+          {error && <p className="login-error" role="alert">{error}</p>}
+          {notice && <p className="login-notice" role="status">{notice}</p>}
+          <button type="submit" className="login-submit">{mode === 'login' ? 'Đăng nhập' : mode === 'register' ? 'Tạo tài khoản' : 'Gửi hướng dẫn'} <ArrowRight className="h-4 w-4" /></button>
+        </form>
+
+        <div className="login-footer">
+          {mode === 'login' ? <span>Chưa có tài khoản? <button type="button" className="login-link" onClick={() => changeMode('register')}>Tạo tài khoản</button></span> : <button type="button" className="login-link" onClick={() => changeMode('login')}>← Quay lại đăng nhập</button>}
         </div>
       </div>
     </div>
   );
 }
 
+function ProtectedRoute({ children, user, role }: { children: React.ReactNode; user: AuthUser | null; role?: UserRole }) {
+  if (!user) return <Navigate to="/login" replace />;
+  if (role && user.role !== role) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />;
+  return <>{children}</>;
+}
+
 function App() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    const savedUser = window.localStorage.getItem('luckydraw-user');
+    return savedUser ? JSON.parse(savedUser) as AuthUser : null;
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      window.localStorage.setItem('luckydraw-user', JSON.stringify(currentUser));
+    } else {
+      window.localStorage.removeItem('luckydraw-user');
+    }
+  }, [currentUser]);
+
+  const handleLogout = () => setCurrentUser(null);
+
   return (
-    <DashboardLayout>
+    <DashboardLayout currentUser={currentUser} onLogout={handleLogout}>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/programs" element={<ProgramsPage />} />
         <Route path="/programs/:id" element={<ProgramDetailPage />} />
-        <Route path="/choose" element={<ChooseTicketsPage />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/payment" element={<PaymentPage />} />
-        <Route path="/success" element={<PaymentSuccessPage />} />
-        <Route path="/tickets" element={<MyTicketsPage />} />
+        <Route path="/choose" element={<ProtectedRoute user={currentUser}><ChooseTicketsPage /></ProtectedRoute>} />
+        <Route path="/checkout" element={<ProtectedRoute user={currentUser}><CheckoutPage /></ProtectedRoute>} />
+        <Route path="/payment" element={<ProtectedRoute user={currentUser}><PaymentPage /></ProtectedRoute>} />
+        <Route path="/success" element={<ProtectedRoute user={currentUser}><PaymentSuccessPage /></ProtectedRoute>} />
+        <Route path="/tickets" element={<ProtectedRoute user={currentUser}><MyTicketsPage /></ProtectedRoute>} />
         <Route path="/results" element={<ResultsPage />} />
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/winner" element={<WinnerPage />} />
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/programs" element={<ProgramManagement />} />
-        <Route path="/admin/tickets" element={<TicketManagement />} />
-        <Route path="/admin/orders" element={<OrderManagement />} />
-        <Route path="/admin/draw" element={<DrawingManagement />} />
-        <Route path="/admin/audit" element={<AuditLogPage />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin" element={<ProtectedRoute user={currentUser} role="admin"><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/programs" element={<ProtectedRoute user={currentUser} role="admin"><ProgramManagement /></ProtectedRoute>} />
+        <Route path="/admin/tickets" element={<ProtectedRoute user={currentUser} role="admin"><TicketManagement /></ProtectedRoute>} />
+        <Route path="/admin/orders" element={<ProtectedRoute user={currentUser} role="admin"><OrderManagement /></ProtectedRoute>} />
+        <Route path="/admin/draw" element={<ProtectedRoute user={currentUser} role="admin"><DrawingManagement /></ProtectedRoute>} />
+        <Route path="/admin/audit" element={<ProtectedRoute user={currentUser} role="admin"><AuditLogPage /></ProtectedRoute>} />
+        <Route path="/login" element={<LoginPage onLogin={setCurrentUser} />} />
       </Routes>
     </DashboardLayout>
   );

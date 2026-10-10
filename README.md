@@ -1,4 +1,37 @@
-Giao diện người dùng
+# LuckyDraw
+
+Đây là giao diện demo nền tảng quay số LuckyDraw, hiện chạy bằng React + TypeScript + Vite và dữ liệu mẫu.
+
+## Chạy frontend
+
+```bash
+npm install
+npm run dev
+```
+
+Build kiểm tra TypeScript và tạo bản production:
+
+```bash
+npm run build
+```
+
+## Cấu trúc repository
+
+- `frontend/`: ứng dụng React, gồm `src/components`, `src/features`, `src/pages`, `src/services` và các lớp frontend khác.
+- `backend/`: khung module API và test backend, chưa triển khai runtime.
+- `database/`: migration, seed, schema và script SQL.
+- `tests/`: E2E, load, security và dữ liệu kiểm thử.
+- `docs/`: SRS, kiến trúc, API, kế hoạch test và ADR.
+- `research/`, `data/`, `benchmarks/`, `reports/`: tài liệu nghiên cứu, dữ liệu, benchmark và báo cáo.
+- `infra/`, `scripts/`, `.github/`: hạ tầng, script tiện ích và workflow CI/CD.
+
+## Trạng thái hiện tại
+
+Frontend đã được di chuyển sang `frontend/src` nhưng vẫn giữ nguyên các màn hình và luồng demo hiện có. Backend, database thật và API contract sẽ được triển khai ở các bước tiếp theo.
+
+---
+
+## Giao diện người dùng
 1. Trang chủ
 
 Hiển thị:
@@ -397,3 +430,13 @@ Thời gian          User       Action          Entity
 20:05:25            User01     PAYMENT         Order
 20:10:42            Admin      DRAW            Program
 20:10:45            Admin      PUBLISH         Result
+Người dùng
+
+Email: user@luckydraw.vn
+Mật khẩu: user123
+Vào trang mua vé và xem vé
+Quản lý
+
+Email: admin@luckydraw.vn
+Mật khẩu: admin123
+Vào dashboard quản lý chương trình, vé, đơn hàng và quay số

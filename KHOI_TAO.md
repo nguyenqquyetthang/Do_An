@@ -52,14 +52,14 @@ Sau đó tạo Pull Request để cùng kiểm tra trước khi gộp vào `main
 
 ## Cấu trúc chính
 
-- `src/App.tsx`: các màn hình và luồng chính của ứng dụng
-- `src/components/`: các component giao diện dùng lại
-- `src/data/mockData.ts`: dữ liệu mẫu cho giao diện demo
-- `src/index.css`: style chung và Tailwind
+- `frontend/src/App.tsx`: các màn hình và luồng chính của ứng dụng
+- `frontend/src/components/`: các component giao diện dùng lại
+- `frontend/src/data/mockData.ts`: dữ liệu mẫu cho giao diện demo
+- `frontend/src/index.css`: style chung và Tailwind
 - `vite.config.ts`: cấu hình Vite
 
 ## Lưu ý
 
 - Không commit `node_modules`, `dist`, file `.env` hoặc các file `*.tsbuildinfo`.
 - Khi thêm biến môi trường, tạo `.env.example` chỉ chứa tên biến, không chứa khóa bí mật.
-- Đây hiện là giao diện demo dùng dữ liệu mẫu; chưa có backend hoặc cơ sở dữ liệu thật.
+- Đây hiện là giao diện demo dùng dữ liệu mẫu; backend và cơ sở dữ liệu được chuẩn bị trong các thư mục tương ứng.

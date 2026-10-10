@@ -3,7 +3,20 @@ import { Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { navItems } from '../../data/mockData';
 
-export function DashboardLayout({ children }: { children: ReactNode }) {
+type AuthUser = {
+  name: string;
+  role: 'user' | 'admin';
+};
+
+export function DashboardLayout({
+  children,
+  currentUser,
+  onLogout,
+}: {
+  children: ReactNode;
+  currentUser: AuthUser | null;
+  onLogout: () => void;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -24,8 +37,17 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="header-actions hidden md:flex">
-            <button className="ghost-btn">Admin</button>
-            <button className="primary-btn small">Đăng nhập</button>
+            {currentUser ? (
+              <>
+                <Link to={currentUser.role === 'admin' ? '/admin' : '/'} className="ghost-btn inline-flex items-center gap-2">
+                  <span className="status-dot" />
+                  {currentUser.name}
+                </Link>
+                <button className="primary-btn small" onClick={onLogout}>Đăng xuất</button>
+              </>
+            ) : (
+              <Link to="/login" className="primary-btn small">Đăng nhập</Link>
+            )}
           </div>
 
           <button className="menu-btn md:hidden" onClick={() => setMenuOpen((v) => !v)}>

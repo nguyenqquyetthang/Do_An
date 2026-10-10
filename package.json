@@ -13,7 +13,9 @@
     "@tanstack/react-query": "^5.0.0",
     "axios": "^1.7.9",
     "date-fns": "^4.1.0",
+    "dotenv": "^18.0.7",
     "lucide-react": "^0.469.0",
+    "pg": "^8.23.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.15.0",
@@ -22,6 +24,7 @@
     "zod": "^3.23.1"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
