@@ -121,3 +121,128 @@ export const navItems = [
   { label: 'Kết quả', to: '/results' },
   { label: 'Đăng nhập', to: '/login' },
 ];
+
+export type UserStatus = 'active' | 'inactive' | 'locked';
+export type AppRole = 'ADMIN' | 'ORGANIZER' | 'USER' | 'AUDITOR';
+
+export type UserItem = {
+  id: string;
+  username: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  role: AppRole;
+  status: UserStatus;
+  balance: number;
+  totalTickets: number;
+  totalSpent: number;
+  createdAt: string;
+};
+
+export const mockUsers: UserItem[] = [
+  {
+    id: 'USR-001',
+    username: 'nguyenvana',
+    fullName: 'Nguyễn Văn A',
+    email: 'user@luckydraw.vn',
+    phone: '0901234567',
+    role: 'USER',
+    status: 'active',
+    balance: 25000,
+    totalTickets: 12,
+    totalSpent: 12000,
+    createdAt: '2026-08-15',
+  },
+  {
+    id: 'USR-002',
+    username: 'admin',
+    fullName: 'Quản trị viên Hệ thống',
+    email: 'admin@luckydraw.vn',
+    phone: '0988888888',
+    role: 'ADMIN',
+    status: 'active',
+    balance: 1000000,
+    totalTickets: 0,
+    totalSpent: 0,
+    createdAt: '2026-01-01',
+  },
+  {
+    id: 'USR-003',
+    username: 'tranbich',
+    fullName: 'Trần Thị Bích',
+    email: 'bich.tran@gmail.com',
+    phone: '0912345678',
+    role: 'USER',
+    status: 'active',
+    balance: 8500,
+    totalTickets: 8,
+    totalSpent: 8000,
+    createdAt: '2026-09-02',
+  },
+  {
+    id: 'USR-004',
+    username: 'namle',
+    fullName: 'Lê Hoàng Nam',
+    email: 'nam.le@luckydraw.vn',
+    phone: '0934567890',
+    role: 'ORGANIZER',
+    status: 'active',
+    balance: 50000,
+    totalTickets: 4,
+    totalSpent: 4000,
+    createdAt: '2026-07-10',
+  },
+  {
+    id: 'USR-005',
+    username: 'tuanpham',
+    fullName: 'Phạm Minh Tuấn',
+    email: 'tuan.pm@gmail.com',
+    phone: '0945678901',
+    role: 'USER',
+    status: 'inactive',
+    balance: 1000,
+    totalTickets: 1,
+    totalSpent: 1000,
+    createdAt: '2026-09-28',
+  },
+  {
+    id: 'USR-006',
+    username: 'danghoang',
+    fullName: 'Hoàng Hải Đăng',
+    email: 'dang.hh@auditor.vn',
+    phone: '0967890123',
+    role: 'AUDITOR',
+    status: 'active',
+    balance: 0,
+    totalTickets: 0,
+    totalSpent: 0,
+    createdAt: '2026-08-01',
+  },
+  {
+    id: 'USR-007',
+    username: 'trongvu',
+    fullName: 'Vũ Đình Trọng',
+    email: 'trong.vu@spammer.net',
+    phone: '0978901234',
+    role: 'USER',
+    status: 'locked',
+    balance: 0,
+    totalTickets: 3,
+    totalSpent: 3000,
+    createdAt: '2026-09-15',
+  },
+  {
+    id: 'USR-008',
+    username: 'thuytrang',
+    fullName: 'Đỗ Thùy Trang',
+    email: 'trang.do@gmail.com',
+    phone: '0989012345',
+    role: 'USER',
+    status: 'active',
+    balance: 45000,
+    totalTickets: 18,
+    totalSpent: 18000,
+    createdAt: '2026-10-01',
+  },
+];
+

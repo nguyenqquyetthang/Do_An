@@ -62,6 +62,11 @@ export function DashboardLayout({
                 {item.label}
               </Link>
             ))}
+            {currentUser?.role === 'admin' && (
+              <Link to="/admin" className="mobile-nav-link font-bold text-cyan-300" onClick={() => setMenuOpen(false)}>
+                🛡️ Trang quản trị viên
+              </Link>
+            )}
           </div>
         )}
       </header>
