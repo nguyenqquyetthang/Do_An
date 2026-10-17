@@ -40,9 +40,12 @@ import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ProgramCard } from './components/ui/ProgramCard';
 import { StatCard } from './components/ui/StatCard';
 import { TicketGrid } from './components/ui/TicketGrid';
+import { AdminNav } from './components/admin/AdminNav';
+import { UserManagement } from './components/admin/UserManagement';
 import {
   adminPrograms,
   auditLogs,
+  mockUsers,
   orderHistory,
   pieData,
   programs,
@@ -501,6 +504,7 @@ function WinnerPage() {
 function AdminDashboard() {
   return (
     <div className="space-y-6">
+      <AdminNav />
       <div className="card-glass section-header rounded-3xl p-6">
         <div className="flex items-center gap-3">
           <LayoutDashboard className="h-6 w-6 text-cyan-300" />
@@ -510,12 +514,14 @@ function AdminDashboard() {
 
       <div className="grid gap-6 lg:grid-cols-4">
         {[
-          { label: 'Chương trình', value: '12', icon: Gift },
-          { label: 'Đơn hàng', value: '1.250', icon: ListOrdered },
-          { label: 'Người dùng', value: '3.842', icon: UserRound },
-          { label: 'Doanh thu', value: '125.000.000 điểm', icon: CircleDollarSign },
+          { label: 'Chương trình', value: '12', icon: Gift, to: '/admin/programs' },
+          { label: 'Đơn hàng', value: '1.250', icon: ListOrdered, to: '/admin/orders' },
+          { label: 'Người dùng', value: '3.842', icon: UserRound, to: '/admin/users' },
+          { label: 'Doanh thu', value: '125.000.000 điểm', icon: CircleDollarSign, to: '/admin' },
         ].map((item) => (
-          <StatCard key={item.label} label={item.label} value={item.value} icon={item.icon} />
+          <Link key={item.label} to={item.to} className="block transition hover:-translate-y-1">
+            <StatCard label={item.label} value={item.value} icon={item.icon} />
+          </Link>
         ))}
       </div>
 
@@ -564,6 +570,71 @@ function AdminDashboard() {
         </div>
       </div>
 
+      {/* Quản lý Người dùng trong trang Quản trị */}
+      <div className="card-glass rounded-3xl p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <UserRound className="h-5 w-5 text-cyan-400" />
+              <h2 className="text-xl font-bold text-white">Quản lý Người dùng hệ thống</h2>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Danh sách thành viên, số dư ví và quyền hạn tài khoản</p>
+          </div>
+          <Link
+            to="/admin/users"
+            className="primary-btn inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white"
+          >
+            Vào trang Quản lý User đầy đủ <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm text-slate-200">
+            <thead>
+              <tr className="border-b border-slate-700/80 text-xs uppercase tracking-wider text-slate-400">
+                <th className="py-3 pr-6">Họ tên & Email</th>
+                <th className="py-3 pr-6">Tài khoản</th>
+                <th className="py-3 pr-6">Vai trò</th>
+                <th className="py-3 pr-6">Số dư ví</th>
+                <th className="py-3 pr-6">Trạng thái</th>
+                <th className="py-3 pr-6 text-right">Hành động</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {mockUsers.slice(0, 4).map((u) => (
+                <tr key={u.id} className="hover:bg-slate-800/30 transition">
+                  <td className="py-3.5 pr-6">
+                    <div className="font-semibold text-white">{u.fullName}</div>
+                    <div className="text-xs text-slate-400">{u.email}</div>
+                  </td>
+                  <td className="py-3.5 pr-6 text-slate-300">@{u.username}</td>
+                  <td className="py-3.5 pr-6">
+                    <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 text-xs font-semibold text-cyan-300">
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="py-3.5 pr-6 font-bold text-cyan-300">{formatMoney(u.balance)}</td>
+                  <td className="py-3.5 pr-6">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${u.status === 'active' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${u.status === 'active' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                      {u.status === 'active' ? 'Đang hoạt động' : 'Đã khóa'}
+                    </span>
+                  </td>
+                  <td className="py-3.5 pr-6 text-right">
+                    <Link
+                      to="/admin/users"
+                      className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline"
+                    >
+                      Chi tiết →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="card-glass rounded-3xl p-6">
         <h2 className="text-xl font-bold text-white">Chương trình đang hoạt động</h2>
         <div className="mt-6 space-y-4">
@@ -587,6 +658,7 @@ function AdminDashboard() {
 function ProgramManagement() {
   return (
     <div className="space-y-6">
+      <AdminNav />
       <div className="card-glass rounded-3xl p-6">
         <h1 className="text-3xl font-black text-white">Quản lý chương trình</h1>
       </div>
@@ -647,6 +719,7 @@ function ProgramManagement() {
 function TicketManagement() {
   return (
     <div className="space-y-6">
+      <AdminNav />
       <div className="card-glass rounded-3xl p-6">
         <h1 className="text-3xl font-black text-white">Quản lý số dự thưởng</h1>
       </div>
@@ -681,6 +754,7 @@ function TicketManagement() {
 function OrderManagement() {
   return (
     <div className="space-y-6">
+      <AdminNav />
       <div className="card-glass rounded-3xl p-6">
         <h1 className="text-3xl font-black text-white">Quản lý đơn hàng</h1>
       </div>
@@ -720,6 +794,7 @@ function OrderManagement() {
 function DrawingManagement() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
+      <AdminNav />
       <div className="card-glass rounded-3xl p-6">
         <h1 className="text-3xl font-black text-white">Quản lý quay số</h1>
         <div className="mt-4 text-slate-300">Chương trình #001</div>
@@ -767,6 +842,7 @@ function DrawingManagement() {
 function AuditLogPage() {
   return (
     <div className="space-y-6">
+      <AdminNav />
       <div className="card-glass rounded-3xl p-6">
         <h1 className="text-3xl font-black text-white">Audit Log</h1>
       </div>
@@ -963,6 +1039,7 @@ function App() {
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/winner" element={<WinnerPage />} />
         <Route path="/admin" element={<ProtectedRoute user={currentUser} role="admin"><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute user={currentUser} role="admin"><UserManagement /></ProtectedRoute>} />
         <Route path="/admin/programs" element={<ProtectedRoute user={currentUser} role="admin"><ProgramManagement /></ProtectedRoute>} />
         <Route path="/admin/tickets" element={<ProtectedRoute user={currentUser} role="admin"><TicketManagement /></ProtectedRoute>} />
         <Route path="/admin/orders" element={<ProtectedRoute user={currentUser} role="admin"><OrderManagement /></ProtectedRoute>} />
