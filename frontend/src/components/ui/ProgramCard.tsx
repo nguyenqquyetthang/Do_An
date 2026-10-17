@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom';
-import type { Program } from '../../data/mockData';
+type Program = {
+  id: string;
+  title: string;
+  displayStatus: string;
+  ticketPrice: number;
+  total_tickets: number;
+  soldTickets: number;
+  description: string | null;
+};
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('vi-VN').format(value) + ' điểm';
@@ -8,14 +16,14 @@ function formatMoney(value: number) {
 export function ProgramCard({ program }: { program: Program }) {
   return (
     <div className="glass-panel program-card">
-      <img src={program.image} alt={program.title} className="program-image" />
+      <div className="program-image flex items-center justify-center bg-gradient-to-br from-cyan-500/30 to-violet-500/30 text-5xl font-black text-white">L</div>
       <div className="program-body">
         <div className="program-header">
           <h3>{program.title}</h3>
-          <span className="status-pill">{program.status}</span>
+          <span className="status-pill">{program.displayStatus}</span>
         </div>
 
-        <p className="program-summary">{program.prize}</p>
+        <p className="program-summary">{program.description || 'Chương trình quay số minh bạch và an toàn.'}</p>
 
         <div className="program-meta">
           <div className="meta-row">
@@ -24,12 +32,12 @@ export function ProgramCard({ program }: { program: Program }) {
           </div>
           <div className="meta-row">
             <span>Còn</span>
-            <span>{(program.totalTickets - program.soldTickets).toLocaleString()} số</span>
+            <span>{(program.total_tickets - program.soldTickets).toLocaleString()} số</span>
           </div>
         </div>
 
         <Link to={`/programs/${program.id}`} className="primary-btn w-full rounded-xl">
-          {program.status === 'Đã kết thúc' ? 'Xem kết quả' : 'Chọn số'}
+          {program.displayStatus === 'Đã kết thúc' ? 'Xem kết quả' : 'Chọn số'}
         </Link>
       </div>
     </div>

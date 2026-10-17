@@ -1,11 +1,15 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
-import { navItems } from '../../data/mockData';
+const navItems = [
+  { label: 'Trang chủ', to: '/' },
+  { label: 'Chương trình', to: '/programs' },
+  { label: 'Kết quả', to: '/results' },
+];
 
 type AuthUser = {
   name: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'organizer' | 'admin';
 };
 
 export function DashboardLayout({
@@ -39,7 +43,7 @@ export function DashboardLayout({
           <div className="header-actions hidden md:flex">
             {currentUser ? (
               <>
-                <Link to={currentUser.role === 'admin' ? '/admin' : '/'} className="ghost-btn inline-flex items-center gap-2">
+                <Link to={currentUser.role === 'admin' ? '/admin' : currentUser.role === 'organizer' ? '/admin/programs' : '/'} className="ghost-btn inline-flex items-center gap-2">
                   <span className="status-dot" />
                   {currentUser.name}
                 </Link>

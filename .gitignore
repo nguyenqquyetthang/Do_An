@@ -6,6 +6,7 @@ vite.config.d.ts
 .env
 .env.*
 !.env.example
+backend/uploads/
 
 # Editor and OS files
 .vscode/*

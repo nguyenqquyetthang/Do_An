@@ -1,4 +1,4 @@
-import type { TicketStatus } from '../../data/mockData';
+type TicketStatus = 'Available' | 'Held' | 'Sold' | 'Unavailable';
 
 type Props = {
   selected: string[];

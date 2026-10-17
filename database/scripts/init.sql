@@ -76,10 +76,14 @@ CREATE TABLE prizes (
     estimated_value NUMERIC(18,2) NOT NULL DEFAULT 0,
     quantity INTEGER NOT NULL DEFAULT 1,
     image_url TEXT,
+    video_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT ck_prize_value CHECK (estimated_value >= 0),
     CONSTRAINT ck_prize_quantity CHECK (quantity > 0)
 );
+
+COMMENT ON COLUMN prizes.image_url IS 'Đường dẫn ảnh giải thưởng';
+COMMENT ON COLUMN prizes.video_url IS 'Đường dẫn video giải thưởng';
 
 -- 5. LOTTERY_TICKETS
 CREATE TABLE lottery_tickets (

@@ -1,1054 +1,195 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import {
-  ArrowRight,
-  BadgeCheck,
-  BarChart3,
-  CalendarRange,
-  Check,
-  CircleDollarSign,
-  Clock3,
-  Gift,
-  LayoutDashboard,
-  ListOrdered,
-  LogIn,
-  ShieldCheck,
-  Sparkles,
-  Ticket,
-  Trophy,
-  UserRound,
-  Wallet,
-  Zap,
-} from 'lucide-react';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { ArrowRight, BarChart3, CalendarRange, Check, CircleDollarSign, Gift, LayoutDashboard, ListOrdered, LogIn, ShieldCheck, Ticket, Trophy, UserRound } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { format } from 'date-fns';
-
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ProgramCard } from './components/ui/ProgramCard';
 import { StatCard } from './components/ui/StatCard';
 import { TicketGrid } from './components/ui/TicketGrid';
-import { AdminNav } from './components/admin/AdminNav';
-import { UserManagement } from './components/admin/UserManagement';
-import {
-  adminPrograms,
-  auditLogs,
-  mockUsers,
-  orderHistory,
-  pieData,
-  programs,
-  statData,
-  tickets,
-  winners,
-  type TicketStatus,
-} from './data/mockData';
+import { API_ORIGIN, api, type ApiOrder, type ApiProgram, type ApiResult, type ApiTicket } from './services/api';
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('vi-VN').format(value) + ' điểm';
-}
+type UserRole = 'user' | 'organizer' | 'admin';
+type AuthUser = { name: string; email: string; role: UserRole };
+type UiProgram = ApiProgram & { id: string; title: string; ticketPrice: number; soldTickets: number; displayStatus: string; prizeValue: number };
+
+const money = (value: number) => `${new Intl.NumberFormat('vi-VN').format(value)} điểm`;
+const statusLabel = (status: string) => ({ published: 'Đang diễn ra', draft: 'Bản nháp', closed: 'Đã đóng', completed: 'Đã kết thúc', drawing: 'Đang quay', cancelled: 'Đã huỷ' }[status] ?? status);
+const toProgram = (program: ApiProgram): UiProgram => ({ ...program, id: String(program.program_id), title: program.program_name, ticketPrice: Number(program.ticket_price), soldTickets: Number(program.reserved_tickets ?? 0), displayStatus: statusLabel(program.status), prizeValue: Number(program.prizes?.[0]?.estimated_value ?? 0) });
+const useApi = <T,>(loader: () => Promise<T>, initial: T) => {
+  const [data, setData] = useState(initial);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { loader().then(setData).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Không thể tải dữ liệu.')).finally(() => setLoading(false)); }, []);
+  return { data, error, loading };
+};
+const ErrorState = ({ error }: { error: string }) => error ? <div className="card-glass rounded-3xl p-6 text-rose-300">{error}</div> : null;
+const Loading = () => <div className="card-glass rounded-3xl p-8 text-center text-slate-300">Đang tải dữ liệu...</div>;
 
 function HomePage() {
-  const activeProgram = programs[0];
-  const remaining = activeProgram.totalTickets - activeProgram.soldTickets;
-  const percent = (activeProgram.soldTickets / activeProgram.totalTickets) * 100;
-
-  return (
-    <div className="space-y-8">
-      <section className="card-glass hero-panel overflow-hidden rounded-[28px] border">
-        <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
-          <div className="max-w-xl space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">
-              <Sparkles className="h-3.5 w-3.5" />
-              Chương trình đang diễn ra
-            </div>
-            <h1 className="text-4xl font-black tracking-tight text-white lg:text-5xl">Mã may mắn trong tay, giải thưởng lớn đang chờ.</h1>
-            <p className="text-lg text-slate-300">Chương trình với hệ thống chọn số trực tiếp, minh bạch, truy xuất được và an toàn theo tiêu chuẩn công bằng.</p>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/programs" className="primary-btn inline-flex items-center gap-2 rounded-full px-5 py-3 font-semibold">
-                Xem chương trình <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link to="/results" className="secondary-btn inline-flex items-center gap-2 rounded-full border px-5 py-3 font-semibold">
-                Xem kết quả
-              </Link>
-            </div>
-          </div>
-
-          <div className="w-full max-w-xl rounded-3xl bg-slate-900/60 p-4 ring-1 ring-slate-700">
-            <img src={activeProgram.image} alt={activeProgram.title} className="h-72 w-full rounded-2xl object-cover" />
-            <div className="mt-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-2xl font-bold text-white">{activeProgram.title}</h2>
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                  {activeProgram.status}
-                </span>
-              </div>
-              <p className="text-slate-300">{activeProgram.prize}</p>
-              <div className="flex items-center justify-between text-sm text-slate-300">
-                <span>Giá trị giải thưởng</span>
-                <span className="font-semibold text-cyan-300">{formatMoney(activeProgram.prizeValue)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm text-slate-300">
-                <span>Giá mỗi số</span>
-                <span className="font-semibold text-white">{formatMoney(activeProgram.ticketPrice)}</span>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm text-slate-300">
-                  <span>Đã chọn</span>
-                  <span>{activeProgram.soldTickets.toLocaleString()} / {activeProgram.totalTickets.toLocaleString()} số</span>
-                </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-slate-800">
-                  <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400" style={{ width: `${percent}%` }} />
-                </div>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Còn lại</div>
-                  <div className="mt-1 text-xl font-bold text-white">{remaining.toLocaleString()} số</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Thời gian còn</div>
-                  <div className="mt-1 text-lg font-bold text-cyan-300">02 ngày 13 giờ</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 md:grid-cols-3">
-        {[
-          { label: 'Chương trình đang mở', value: '12', icon: Ticket },
-          { label: 'Program sắp mở', value: '05', icon: CalendarRange },
-          { label: 'Chương trình kết thúc', value: '08', icon: Trophy },
-        ].map((item) => (
-          <StatCard key={item.label} label={item.label} value={item.value} icon={item.icon} />
-        ))}
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-white">Danh sách chương trình quay số</h2>
-          <Link to="/programs" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">Xem tất cả</Link>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          {programs.map((program) => (
-            <ProgramCard key={program.id} program={program} />
-          ))}
-        </div>
-      </section>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.programs, [] as ApiProgram[]);
+  const programs = data.map(toProgram);
+  const active = programs.find((p) => p.status === 'published') ?? programs[0];
+  if (loading) return <Loading />;
+  if (error) return <ErrorState error={error} />;
+  if (!active) return <div className="card-glass rounded-3xl p-8 text-slate-300">Chưa có chương trình nào được công bố.</div>;
+  const counts = ['published', 'draft', 'completed'].map((status) => programs.filter((p) => p.status === status).length);
+  return <div className="space-y-8">
+    <section className="card-glass hero-panel rounded-[28px] border p-8">
+      <div className="max-w-3xl space-y-5"><p className="text-sm uppercase tracking-[0.2em] text-cyan-300">Chương trình đang diễn ra</p><h1 className="text-4xl font-black text-white lg:text-5xl">Mã may mắn trong tay, giải thưởng lớn đang chờ.</h1><p className="text-lg text-slate-300">{active.description || 'Chọn số dự thưởng minh bạch, an toàn và có thể xác minh.'}</p><Link to={`/programs/${active.id}`} className="primary-btn inline-flex items-center gap-2 rounded-full px-5 py-3 font-semibold">Xem chương trình <ArrowRight className="h-4 w-4" /></Link></div>
+      <div className="mt-8 grid gap-4 sm:grid-cols-3"><StatCard label="Đang diễn ra" value={String(counts[0])} icon={Ticket} /><StatCard label="Sắp mở" value={String(counts[1])} icon={CalendarRange} /><StatCard label="Đã kết thúc" value={String(counts[2])} icon={Trophy} /></div>
+    </section>
+    <section className="space-y-4"><h2 className="text-2xl font-bold text-white">Danh sách chương trình quay số</h2><div className="grid gap-6 lg:grid-cols-3">{programs.map((p) => <ProgramCard key={p.id} program={p} />)}</div></section>
+  </div>;
 }
 
 function ProgramsPage() {
-  return (
-    <div className="space-y-6">
-      <div className="card-glass rounded-3xl p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-cyan-300">Lọc chương trình</p>
-            <h1 className="mt-2 text-3xl font-black text-white">Danh sách chương trình quay số</h1>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {['Đang diễn ra', 'Sắp diễn ra', 'Đã kết thúc'].map((status) => (
-              <button key={status} className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500">
-                {status}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {programs.map((program) => (
-          <Link key={program.id} to={`/programs/${program.id}`} className="card-glass overflow-hidden rounded-3xl transition hover:-translate-y-1 hover:shadow-2xl">
-            <img src={program.image} alt={program.title} className="h-44 w-full object-cover" />
-            <div className="space-y-4 p-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-white">{program.title}</h3>
-                <span className="status-pill bg-emerald-500/10 text-emerald-300">{program.status}</span>
-              </div>
-              <div className="space-y-2 text-sm text-slate-300">
-                <div>Giải thưởng: {program.prize}</div>
-                <div>1 số: {formatMoney(program.ticketPrice)}</div>
-                <div>Còn: {(program.totalTickets - program.soldTickets).toLocaleString()} số</div>
-              </div>
-              <button className="primary-btn w-full rounded-xl px-4 py-3 font-semibold">
-                {program.status === 'Đã kết thúc' ? 'Xem kết quả' : 'Chọn số'}
-              </button>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.programs, [] as ApiProgram[]);
+  const [filter, setFilter] = useState('all');
+  const programs = data.map(toProgram).filter((p) => filter === 'all' || p.displayStatus === filter);
+  if (loading) return <Loading />;
+  return <div className="space-y-6"><div className="card-glass rounded-3xl p-6"><h1 className="text-3xl font-black text-white">Danh sách chương trình quay số</h1><div className="mt-4 flex flex-wrap gap-3">{['all', 'Đang diễn ra', 'Bản nháp', 'Đã kết thúc'].map((item) => <button key={item} onClick={() => setFilter(item)} className={`rounded-full border px-4 py-2 text-sm ${filter === item ? 'border-cyan-400 text-cyan-300' : 'border-slate-700 text-slate-300'}`}>{item === 'all' ? 'Tất cả' : item}</button>)}</div></div><ErrorState error={error} /><div className="grid gap-6 lg:grid-cols-3">{programs.map((p) => <ProgramCard key={p.id} program={p} />)}</div></div>;
 }
 
 function ProgramDetailPage() {
-  const program = programs[0];
-
-  return (
-    <div className="space-y-6">
-      <div className="card-glass overflow-hidden rounded-3xl">
-        <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-          <div className="p-6 lg:p-8">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-violet-200">
-              <BadgeCheck className="h-3.5 w-3.5" />
-              {program.status}
-            </div>
-            <h1 className="text-3xl font-black text-white">{program.title}</h1>
-            <p className="mt-4 text-slate-300">{program.description}</p>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {[
-                { label: 'Giá trị giải thưởng', value: formatMoney(program.prizeValue) },
-                { label: 'Giá mỗi số', value: formatMoney(program.ticketPrice) },
-                { label: 'Tổng số vé', value: `${program.totalTickets.toLocaleString()} vé` },
-                { label: 'Đã bán', value: `${program.soldTickets.toLocaleString()} vé` },
-              ].map((item) => (
-                <div key={item.label} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{item.label}</div>
-                  <div className="mt-2 text-lg font-bold text-white">{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-4">
-              <Link to="/choose" className="primary-btn inline-flex items-center gap-2 rounded-xl px-5 py-3 font-semibold">
-                Chọn số dự thưởng <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-
-          <div className="border-t border-slate-700 bg-slate-900/80 p-6 lg:border-l lg:border-t-0">
-            <img src={program.image} alt={program.title} className="h-64 w-full rounded-2xl object-cover" />
-            <div className="mt-5 space-y-3">
-              <div className="flex items-center justify-between text-sm text-slate-300">
-                <span>Thời gian mở</span>
-                <span>{format(new Date(program.startDate), 'dd/MM/yyyy')}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm text-slate-300">
-                <span>Thời gian đóng</span>
-                <span>{format(new Date(program.endDate), 'dd/MM/yyyy')}</span>
-              </div>
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-                Các số còn trống sẽ được giữ trong 10 phút sau khi người dùng đặt hàng.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="card-glass rounded-3xl p-6">
-          <h3 className="text-xl font-bold text-white">Cơ cấu giải thưởng</h3>
-          <div className="mt-4 space-y-3 text-slate-300">
-            {['Giải đặc biệt: 05821', 'Giải nhất: 01235', 'Giải nhì: 00125, 08321', 'Giải phụ: 10 phần quà khác'].map((item) => (
-              <div key={item} className="rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3">{item}</div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card-glass rounded-3xl p-6">
-          <h3 className="text-xl font-bold text-white">Thể lệ & cách quay số</h3>
-          <ul className="mt-4 space-y-3 text-sm text-slate-300">
-            <li>• Tất cả vé được cấp số định danh riêng và được lưu theo mã đơn hàng.</li>
-            <li>• Hệ thống kiểm tra trạng thái giữ số và tránh xung đột đồng thời.</li>
-            <li>• Sử dụng seed công khai và commitment để xác minh tính minh bạch.</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
+  const { id } = useParams();
+  const { data, error, loading } = useApi(() => api.program(id ?? ''), null as ApiProgram | null);
+  if (loading) return <Loading />;
+  if (error || !data) return <ErrorState error={error || 'Không tìm thấy chương trình.'} />;
+  const p = toProgram(data);
+  const prize = p.prizes?.[0];
+  return <div className="card-glass rounded-3xl p-8"><p className="text-sm uppercase tracking-[0.2em] text-cyan-300">{p.displayStatus}</p><h1 className="mt-2 text-3xl font-black text-white">{p.title}</h1>{(prize?.image_url || prize?.video_url) && <div className="mt-6 grid gap-4 md:grid-cols-2">{prize.image_url && <img src={`${API_ORIGIN}${prize.image_url}`} alt={prize.prize_name} className="max-h-80 w-full rounded-2xl object-cover" />}{prize.video_url && <video src={`${API_ORIGIN}${prize.video_url}`} controls className="max-h-80 w-full rounded-2xl bg-slate-950 object-cover" />}</div>}<p className="mt-4 text-slate-300">{p.description || 'Chưa có mô tả.'}</p><div className="mt-6 grid gap-4 sm:grid-cols-2">{[['Giá mỗi số', money(p.ticketPrice)], ['Tổng số vé', p.total_tickets.toLocaleString()], ['Đã bán/giữ', p.soldTickets.toLocaleString()], ['Giải thưởng', money(p.prizeValue)]].map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4"><div className="text-xs uppercase text-slate-400">{label}</div><div className="mt-2 text-lg font-bold text-white">{value}</div></div>)}</div>{p.start_time && <p className="mt-6 text-slate-300">Mở từ {format(new Date(p.start_time), 'dd/MM/yyyy HH:mm')} {p.end_time && `đến ${format(new Date(p.end_time), 'dd/MM/yyyy HH:mm')}`}</p>}<Link to={`/choose?program=${p.id}`} className="primary-btn mt-8 inline-flex rounded-xl px-5 py-3 font-semibold">Chọn số dự thưởng</Link></div>;
 }
 
 function ChooseTicketsPage() {
-  const [selected, setSelected] = useState<string[]>(['0007', '0025', '0158']);
-
-  const ticketMap = useMemo(() => {
-    return tickets.reduce<Record<string, TicketStatus>>((acc, item) => {
-      acc[item.number] = item.status;
-      return acc;
-    }, {});
-  }, []);
-
-  const handleSelect = (number: string) => {
-    if (ticketMap[number] === 'Unavailable' || ticketMap[number] === 'Sold') return;
-    setSelected((prev) => {
-      const exists = prev.includes(number);
-      const next = exists ? prev.filter((item) => item !== number) : [...prev, number];
-      return next.slice(0, 10);
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="card-glass rounded-3xl p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-violet-300">Chương trình #001</p>
-            <h1 className="mt-2 text-3xl font-black text-white">Số dự thưởng</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="inline-flex items-center gap-2 text-emerald-300"><span className="h-3 w-3 rounded-full bg-emerald-400" />Còn trống</span>
-            <span className="inline-flex items-center gap-2 text-cyan-300"><span className="h-3 w-3 rounded-full bg-cyan-400" />Đang giữ</span>
-            <span className="inline-flex items-center gap-2 text-rose-300"><span className="h-3 w-3 rounded-full bg-rose-400" />Đã bán</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6">
-        <TicketGrid
-          selected={selected}
-          onSelect={handleSelect}
-          ticketMap={ticketMap}
-          tickets={tickets}
-        />
-
-        <div className="mt-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="text-sm uppercase tracking-[0.2em] text-slate-400">Số đã chọn</div>
-            <div className="mt-2 text-lg font-semibold text-white">{selected.join(', ') || 'Chưa chọn'}</div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-sm uppercase tracking-[0.2em] text-slate-400">Tổng</div>
-            <div className="mt-2 text-2xl font-black text-cyan-300">{formatMoney(selected.length * 1000)}</div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Link to="/checkout" className="primary-btn rounded-xl px-6 py-3 font-bold text-white">
-            Tiếp tục
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
+  const params = new URLSearchParams(window.location.search);
+  const programId = params.get('program') ?? '1';
+  const { data: program } = useApi(() => api.program(programId), null as ApiProgram | null);
+  const { data: tickets, error, loading } = useApi(() => api.tickets(programId), [] as ApiTicket[]);
+  const [selected, setSelected] = useState<string[]>(() => JSON.parse(localStorage.getItem('luckydraw-selected') ?? '[]') as string[]);
+  const map = useMemo(() => Object.fromEntries(tickets.map((t) => [t.ticket_number, t.status === 'available' ? 'Available' : t.status === 'held' ? 'Held' : t.status === 'sold' ? 'Sold' : 'Unavailable'])), [tickets]);
+  const choose = (number: string) => { if (map[number] !== 'Available') return; setSelected((old) => old.includes(number) ? old.filter((n) => n !== number) : old.length < 10 ? [...old, number] : old); };
+  const next = () => { localStorage.setItem('luckydraw-selected', JSON.stringify(selected)); localStorage.setItem('luckydraw-program', programId); };
+  if (loading) return <Loading />;
+  return <div className="space-y-6"><div className="card-glass rounded-3xl p-6"><h1 className="text-3xl font-black text-white">Số dự thưởng {program ? `- ${program.program_name}` : ''}</h1><ErrorState error={error} /></div><div className="card-glass rounded-3xl p-6"><TicketGrid selected={selected} onSelect={choose} ticketMap={map as never} tickets={tickets.map((t) => ({ number: t.ticket_number, status: map[t.ticket_number] as never }))} /><div className="mt-8 flex items-center justify-between"><div><div className="text-sm text-slate-400">Số đã chọn</div><div className="font-semibold text-white">{selected.join(', ') || 'Chưa chọn'}</div></div><div className="text-2xl font-black text-cyan-300">{money(selected.reduce((sum, n) => sum + Number(tickets.find((t) => t.ticket_number === n)?.price ?? 0), 0))}</div></div><Link onClick={next} to={selected.length ? '/checkout' : '#'} className="primary-btn mt-6 inline-flex rounded-xl px-6 py-3 font-bold">Tiếp tục</Link></div></div>;
 }
 
 function CheckoutPage() {
-  const selected = ['0007', '0025', '0158'];
-
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="card-glass rounded-3xl p-8">
-        <h1 className="text-3xl font-black text-white">Xác nhận đơn hàng</h1>
-        <div className="mt-6 space-y-4 text-slate-200">
-          <div className="flex justify-between"><span>Chương trình</span><span className="font-semibold">Chương trình #001</span></div>
-          <div className="flex justify-between"><span>Số</span><span className="font-semibold">{selected.join(', ')}</span></div>
-          <div className="flex justify-between"><span>Số lượng</span><span className="font-semibold">3</span></div>
-          <div className="flex justify-between"><span>Đơn giá</span><span className="font-semibold">1.000 điểm</span></div>
-          <div className="flex justify-between"><span>Tổng</span><span className="text-2xl font-black text-cyan-300">3.000 điểm</span></div>
-          <div className="flex justify-between"><span>Thời gian giữ số</span><span className="font-semibold">10 phút</span></div>
-        </div>
-
-        <div className="mt-8 flex justify-between">
-          <Link to="/choose" className="rounded-xl border border-slate-700 px-5 py-3 font-semibold text-slate-200 hover:border-slate-500">Quay lại</Link>
-          <Link to="/payment" className="rounded-xl bg-cyan-400 px-6 py-3 font-bold text-slate-950 hover:bg-cyan-300">Xác nhận</Link>
-        </div>
-      </div>
-    </div>
-  );
+  const navigate = useNavigate(); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const selected = JSON.parse(localStorage.getItem('luckydraw-selected') ?? '[]') as string[]; const programId = Number(localStorage.getItem('luckydraw-program') ?? 0);
+  const { data: program } = useApi(() => api.program(String(programId)), null as ApiProgram | null);
+  const confirm = async () => { setBusy(true); setError(''); try { await api.holdTickets(String(programId), selected); const result = await api.createOrder(programId, selected); localStorage.setItem('luckydraw-order', String(result.order.order_id)); navigate('/payment'); } catch (e) { setError(e instanceof Error ? e.message : 'Không thể tạo đơn hàng.'); } finally { setBusy(false); } };
+  return <div className="card-glass mx-auto max-w-3xl rounded-3xl p-8"><h1 className="text-3xl font-black text-white">Xác nhận đơn hàng</h1><div className="mt-6 space-y-4 text-slate-200"><div className="flex justify-between"><span>Chương trình</span><b>{program?.program_name ?? '...'}</b></div><div className="flex justify-between"><span>Số</span><b>{selected.join(', ') || 'Chưa chọn'}</b></div><div className="flex justify-between"><span>Số lượng</span><b>{selected.length}</b></div></div><ErrorState error={error} /><button disabled={!selected.length || busy} onClick={confirm} className="primary-btn mt-8 rounded-xl px-6 py-3 font-bold">{busy ? 'Đang tạo đơn...' : 'Xác nhận và giữ số'}</button></div>;
 }
 
 function PaymentPage() {
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="card-glass rounded-3xl p-8">
-        <h1 className="text-3xl font-black text-white">Thanh toán mô phỏng</h1>
-        <div className="mt-6 space-y-4 text-slate-200">
-          <div className="flex justify-between"><span>Đơn hàng</span><span className="font-semibold">#ORD000123</span></div>
-          <div className="flex justify-between"><span>Số dư hiện tại</span><span className="font-semibold">20.000 điểm</span></div>
-          <div className="flex justify-between"><span>Giá trị đơn hàng</span><span className="font-semibold">3.000 điểm</span></div>
-        </div>
-
-        <div className="mt-6 space-y-3">
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/70 p-3"><input type="radio" checked readOnly /> <span>Ví mô phỏng</span></label>
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/70 p-3"><input type="radio" readOnly /> <span>Mã thanh toán mô phỏng</span></label>
-        </div>
-
-        <div className="mt-8 flex justify-end">
-          <Link to="/success" className="rounded-xl bg-emerald-500 px-6 py-3 font-bold text-slate-950 hover:bg-emerald-400">Thanh toán</Link>
-        </div>
-      </div>
-    </div>
-  );
+  const navigate = useNavigate(); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const orderId = Number(localStorage.getItem('luckydraw-order'));
+  const pay = async () => { setBusy(true); try { await api.payOrder(orderId); navigate('/success'); } catch (e) { setError(e instanceof Error ? e.message : 'Thanh toán thất bại.'); } finally { setBusy(false); } };
+  return <div className="card-glass mx-auto max-w-3xl rounded-3xl p-8"><h1 className="text-3xl font-black text-white">Thanh toán mô phỏng</h1><p className="mt-6 text-slate-300">Đơn hàng #{orderId}. Thanh toán sẽ cập nhật vé sang trạng thái đã bán.</p><ErrorState error={error} /><button onClick={pay} disabled={busy || !orderId} className="primary-btn mt-8 rounded-xl px-6 py-3 font-bold">{busy ? 'Đang thanh toán...' : 'Thanh toán'}</button></div>;
 }
-
-function PaymentSuccessPage() {
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="card-glass rounded-3xl p-8 text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
-          <Check className="h-8 w-8" />
-        </div>
-        <h1 className="mt-5 text-3xl font-black text-white">THANH TOÁN THÀNH CÔNG</h1>
-        <div className="mt-4 text-slate-300">Mã đơn hàng: ORD000123</div>
-        <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-200">
-          Các số dự thưởng: 0007, 0025, 0158
-        </div>
-        <div className="mt-8 flex justify-center">
-          <Link to="/tickets" className="primary-btn rounded-xl px-6 py-3 font-bold">Xem vé</Link>
-        </div>
-      </div>
-    </div>
-  );
-}
+const SuccessPage = () => <div className="card-glass mx-auto max-w-3xl rounded-3xl p-10 text-center"><Check className="mx-auto h-16 w-16 text-emerald-400" /><h1 className="mt-4 text-3xl font-black text-white">Thanh toán thành công</h1><Link to="/tickets" className="primary-btn mt-8 inline-flex rounded-xl px-6 py-3 font-bold">Xem vé của tôi</Link></div>;
 
 function MyTicketsPage() {
-  return (
-    <div className="space-y-6">
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Vé của tôi</h1>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        {[
-          { program: 'Chương trình #001', ticket: '0007', status: 'Đang chờ quay', order: 'ORD000123' },
-          { program: 'Chương trình #002', ticket: '0134', status: 'Đã xác nhận', order: 'ORD000127' },
-        ].map((item) => (
-          <div key={item.ticket} className="card-glass rounded-3xl p-5">
-            <div className="space-y-4">
-              <div className="text-xl font-bold text-white">{item.program}</div>
-              <div className="flex justify-between text-sm text-slate-300"><span>Số</span><span>{item.ticket}</span></div>
-              <div className="flex justify-between text-sm text-slate-300"><span>Trạng thái</span><span>{item.status}</span></div>
-              <div className="flex justify-between text-sm text-slate-300"><span>Mã đơn hàng</span><span>{item.order}</span></div>
-              <button className="w-full rounded-xl bg-violet-500 px-4 py-3 font-semibold text-white">Xem chi tiết</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.myOrders, [] as ApiOrder[]);
+  if (loading) return <Loading />;
+  return <div className="space-y-6"><h1 className="text-3xl font-black text-white">Vé của tôi</h1><ErrorState error={error} />{data.map((order) => <div key={order.order_id} className="card-glass rounded-3xl p-6"><div className="flex justify-between text-white"><b>{order.order_code}</b><span>{order.status}</span></div><p className="mt-2 text-slate-300">{order.tickets.map((t) => `${t.programName}: ${t.ticketNumber}`).join(', ')}</p><p className="mt-3 font-bold text-cyan-300">{money(Number(order.total_amount))}</p></div>)}</div>;
 }
 
 function ResultsPage() {
-  return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div className="card-glass rounded-3xl p-8">
-        <h1 className="text-3xl font-black text-white">Kết quả quay số</h1>
-        <div className="mt-4 text-lg text-slate-300">Chương trình #001</div>
-        <div className="mt-5 text-sm text-slate-400">Thời gian quay: 03/10/2026 - 20:00</div>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          {[['Giải đặc biệt', '05821'], ['Giải nhất', '01235'], ['Giải nhì', '00125 / 08321']].map(([label, value]) => (
-            <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-center">
-              <div className="text-sm uppercase tracking-[0.18em] text-slate-400">{label}</div>
-              <div className="mt-3 text-3xl font-black text-cyan-300">{value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-8 flex justify-center">
-          <Link to="/verify" className="success-btn rounded-xl px-6 py-3 font-bold text-slate-950">Xác minh kết quả</Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function VerifyPage() {
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="card-glass rounded-3xl p-8">
-        <h1 className="text-3xl font-black text-white">Xác minh kết quả</h1>
-        <div className="mt-6 space-y-4 text-slate-200">
-          <div className="flex justify-between"><span>Commitment</span><span className="font-semibold">8f92a7...abc</span></div>
-          <div className="flex justify-between"><span>Public Seed</span><span className="font-semibold">20261003</span></div>
-          <div className="flex justify-between"><span>Randomness</span><span className="font-semibold">a82f91...xyz</span></div>
-          <div className="flex justify-between"><span>Thuật toán</span><span className="font-semibold">SHA-256</span></div>
-          <div className="flex justify-between"><span>Kết quả</span><span className="font-semibold text-cyan-300">05821</span></div>
-        </div>
-        <div className="mt-8 flex justify-center">
-          <button className="primary-btn rounded-xl px-6 py-3 font-bold text-white">XÁC MINH</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WinnerPage() {
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="card-glass rounded-3xl p-8">
-        <h1 className="text-3xl font-black text-white">Người trúng thưởng</h1>
-        {winners.map((winner) => (
-          <div key={winner.id} className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/80 p-5">
-            <div className="text-lg font-bold text-white">{winner.program}</div>
-            <div className="mt-4 space-y-2 text-slate-300">
-              <div><span className="text-slate-400">Giải thưởng:</span> {winner.prize}</div>
-              <div><span className="text-slate-400">Số:</span> {winner.ticket}</div>
-              <div><span className="text-slate-400">Người trúng:</span> {winner.user}</div>
-              <div><span className="text-slate-400">Trạng thái:</span> {winner.status}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.results, [] as ApiResult[]);
+  if (loading) return <Loading />;
+  return <div className="mx-auto max-w-4xl space-y-6"><h1 className="text-3xl font-black text-white">Kết quả quay số</h1><ErrorState error={error} />{data.map((draw) => <div key={draw.draw_id} className="card-glass rounded-3xl p-8"><h2 className="text-xl font-bold text-white">{draw.program_name}</h2><p className="mt-2 text-slate-400">{format(new Date(draw.completed_at), 'dd/MM/yyyy HH:mm')}</p><div className="mt-6 grid gap-4 md:grid-cols-3">{draw.results.map((result) => <div key={result.ticketNumber} className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-center"><div className="text-sm text-slate-400">{result.prizeName ?? `Hạng ${result.rank}`}</div><div className="mt-2 text-3xl font-black text-cyan-300">{result.ticketNumber}</div></div>)}</div><p className="mt-6 break-all text-xs text-slate-500">Commitment: {draw.seed_commitment}</p></div>)}</div>;
 }
 
 function AdminDashboard() {
-  return (
-    <div className="space-y-6">
-      <AdminNav />
-      <div className="card-glass section-header rounded-3xl p-6">
-        <div className="flex items-center gap-3">
-          <LayoutDashboard className="h-6 w-6 text-cyan-300" />
-          <h1 className="text-3xl font-black text-white">Admin Dashboard</h1>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-4">
-        {[
-          { label: 'Chương trình', value: '12', icon: Gift, to: '/admin/programs' },
-          { label: 'Đơn hàng', value: '1.250', icon: ListOrdered, to: '/admin/orders' },
-          { label: 'Người dùng', value: '3.842', icon: UserRound, to: '/admin/users' },
-          { label: 'Doanh thu', value: '125.000.000 điểm', icon: CircleDollarSign, to: '/admin' },
-        ].map((item) => (
-          <Link key={item.label} to={item.to} className="block transition hover:-translate-y-1">
-            <StatCard label={item.label} value={item.value} icon={item.icon} />
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.5fr_0.8fr]">
-        <div className="card-glass rounded-3xl p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Tổng quan</h2>
-            <span className="text-sm text-slate-400">Theo tháng</span>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={statData}>
-                <defs>
-                  <linearGradient id="visits" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#22d3ee" stopOpacity={0.1} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} stroke="#334155" />
-                <XAxis dataKey="name" stroke="#94a3b8" />
-                <YAxis stroke="#94a3b8" />
-                <Tooltip />
-                <Area type="monotone" dataKey="visits" stroke="#22d3ee" fill="url(#visits)" strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="card-glass rounded-3xl p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Chương trình</h2>
-            <span className="text-sm text-slate-400">Tỷ lệ</span>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={82} paddingAngle={4}>
-                  {pieData.map((entry, index) => (
-                    <Cell key={entry.name} fill={['#22c55e', '#60a5fa', '#f97316'][index % 3]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Quản lý Người dùng trong trang Quản trị */}
-      <div className="card-glass rounded-3xl p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <div>
-            <div className="flex items-center gap-2">
-              <UserRound className="h-5 w-5 text-cyan-400" />
-              <h2 className="text-xl font-bold text-white">Quản lý Người dùng hệ thống</h2>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">Danh sách thành viên, số dư ví và quyền hạn tài khoản</p>
-          </div>
-          <Link
-            to="/admin/users"
-            className="primary-btn inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white"
-          >
-            Vào trang Quản lý User đầy đủ <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead>
-              <tr className="border-b border-slate-700/80 text-xs uppercase tracking-wider text-slate-400">
-                <th className="py-3 pr-6">Họ tên & Email</th>
-                <th className="py-3 pr-6">Tài khoản</th>
-                <th className="py-3 pr-6">Vai trò</th>
-                <th className="py-3 pr-6">Số dư ví</th>
-                <th className="py-3 pr-6">Trạng thái</th>
-                <th className="py-3 pr-6 text-right">Hành động</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {mockUsers.slice(0, 4).map((u) => (
-                <tr key={u.id} className="hover:bg-slate-800/30 transition">
-                  <td className="py-3.5 pr-6">
-                    <div className="font-semibold text-white">{u.fullName}</div>
-                    <div className="text-xs text-slate-400">{u.email}</div>
-                  </td>
-                  <td className="py-3.5 pr-6 text-slate-300">@{u.username}</td>
-                  <td className="py-3.5 pr-6">
-                    <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 text-xs font-semibold text-cyan-300">
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="py-3.5 pr-6 font-bold text-cyan-300">{formatMoney(u.balance)}</td>
-                  <td className="py-3.5 pr-6">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${u.status === 'active' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${u.status === 'active' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                      {u.status === 'active' ? 'Đang hoạt động' : 'Đã khóa'}
-                    </span>
-                  </td>
-                  <td className="py-3.5 pr-6 text-right">
-                    <Link
-                      to="/admin/users"
-                      className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline"
-                    >
-                      Chi tiết →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6">
-        <h2 className="text-xl font-bold text-white">Chương trình đang hoạt động</h2>
-        <div className="mt-6 space-y-4">
-          {[
-            { code: '#001', sold: '7.250/10.000', status: 'Đang diễn ra' },
-            { code: '#002', sold: '3.200/5.000', status: 'Đang diễn ra' },
-            { code: '#003', sold: '5.000/5.000', status: 'Đã đóng' },
-          ].map((item) => (
-            <div key={item.code} className="flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-slate-200">
-              <div className="font-semibold text-white">{item.code}</div>
-              <div>{item.sold}</div>
-              <div className="text-cyan-300">{item.status}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.adminStats, { stats: { programs: 0, orders: 0, users: 0, revenue: 0 }, monthly: [], statuses: [], programs: [] });
+  if (loading) return <Loading />;
+  return <div className="space-y-6"><h1 className="text-3xl font-black text-white">Admin Dashboard</h1><ErrorState error={error} /><div className="grid gap-6 lg:grid-cols-4"><StatCard label="Chương trình" value={String(data.stats.programs)} icon={Gift} /><StatCard label="Đơn hàng" value={String(data.stats.orders)} icon={ListOrdered} /><StatCard label="Người dùng" value={String(data.stats.users)} icon={UserRound} /><StatCard label="Doanh thu" value={money(Number(data.stats.revenue))} icon={CircleDollarSign} /></div><div className="grid gap-6 xl:grid-cols-[1.5fr_0.8fr]"><div className="card-glass rounded-3xl p-6"><h2 className="mb-5 text-xl font-bold text-white">Đơn hàng theo tháng</h2><div className="h-72"><ResponsiveContainer><AreaChart data={data.monthly}><CartesianGrid vertical={false} stroke="#334155" /><XAxis dataKey="name" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip /><Area dataKey="orders" stroke="#22d3ee" fill="#164e63" /></AreaChart></ResponsiveContainer></div></div><div className="card-glass rounded-3xl p-6"><h2 className="mb-5 text-xl font-bold text-white">Trạng thái</h2><div className="h-72"><ResponsiveContainer><PieChart><Pie data={data.statuses} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>{data.statuses.map((s, i) => <Cell key={s.name} fill={['#22c55e', '#60a5fa', '#f97316', '#a855f7'][i % 4]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></div></div></div>;
 }
 
 function ProgramManagement() {
-  return (
-    <div className="space-y-6">
-      <AdminNav />
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Quản lý chương trình</h1>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400">
-                <th className="py-3 pr-6">Mã</th>
-                <th className="py-3 pr-6">Tên chương trình</th>
-                <th className="py-3 pr-6">Thời gian</th>
-                <th className="py-3 pr-6">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
-              {adminPrograms.map((program) => (
-                <tr key={program.code} className="border-b border-slate-800">
-                  <td className="py-3 pr-6">{program.code}</td>
-                  <td className="py-3 pr-6">{program.name}</td>
-                  <td className="py-3 pr-6">{program.time}</td>
-                  <td className="py-3 pr-6 text-cyan-300">{program.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6">
-        <h2 className="text-xl font-bold text-white">Tạo chương trình</h2>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          {[
-            'Tên chương trình',
-            'Mô tả',
-            'Giải thưởng',
-            'Giá trị giải thưởng',
-            'Tổng số vé',
-            'Giá mỗi số',
-            'Thời gian bắt đầu',
-            'Thời gian kết thúc',
-          ].map((label) => (
-            <div key={label} className="space-y-2">
-              <label className="block text-sm text-slate-300">{label}</label>
-              <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white outline-none focus:border-cyan-400" />
-            </div>
-          ))}
-        </div>
-        <div className="mt-6 flex gap-3">
-          <button className="rounded-xl border border-slate-700 px-5 py-3 font-semibold text-slate-200">Lưu nháp</button>
-          <button className="rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-slate-950">Công bố</button>
-        </div>
-      </div>
-    </div>
-  );
+  const { data, error, loading } = useApi(api.organizerPrograms, [] as ApiProgram[]);
+  const [selectedProgram, setSelectedProgram] = useState<number | null>(null);
+  const [message, setMessage] = useState('');
+  const [form, setForm] = useState({ programCode: '', programName: '', description: '', rules: '', prizeName: '', prizeValue: '0', imageUrl: '', videoUrl: '', ticketPrice: '1000', totalTickets: '100', startTime: '', endTime: '', drawTime: '', status: 'draft' });
+  const [uploading, setUploading] = useState<'image' | 'video' | null>(null);
+  const [ticketData, setTicketData] = useState<Awaited<ReturnType<typeof api.organizerTickets>>>([]);
+  const [orders, setOrders] = useState<Awaited<ReturnType<typeof api.organizerOrders>>>([]);
+  const [tab, setTab] = useState<'programs' | 'tickets' | 'orders'>('programs');
+  const loadTickets = async (programId: number) => {
+    setSelectedProgram(programId);
+    setTab('tickets');
+    try { setTicketData(await api.organizerTickets(programId)); } catch (x) { setMessage(x instanceof Error ? x.message : 'Không thể tải danh sách vé.'); }
+  };
+  const loadOrders = async () => {
+    setTab('orders');
+    try { setOrders(await api.organizerOrders()); } catch (x) { setMessage(x instanceof Error ? x.message : 'Không thể tải đơn hàng.'); }
+  };
+  const uploadMedia = async (kind: 'image' | 'video', file: File) => {
+    const maxSize = kind === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setMessage(`${kind === 'image' ? 'Ảnh' : 'Video'} vượt quá dung lượng cho phép.`);
+      return;
+    }
+    setUploading(kind);
+    setMessage('');
+    try {
+      const result = await api.uploadMedia(file);
+      setForm((old) => ({ ...old, [kind === 'image' ? 'imageUrl' : 'videoUrl']: result.url }));
+    } catch (x) {
+      setMessage(x instanceof Error ? x.message : 'Không thể tải file lên.');
+    } finally {
+      setUploading(null);
+    }
+  };
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setMessage('');
+    try {
+      await api.createProgram({ ...form, imageUrl: form.imageUrl || undefined, videoUrl: form.videoUrl || undefined, ticketPrice: Number(form.ticketPrice), totalTickets: Number(form.totalTickets), prizeValue: Number(form.prizeValue), startTime: form.startTime ? new Date(form.startTime).toISOString() : undefined, endTime: form.endTime ? new Date(form.endTime).toISOString() : undefined, drawTime: form.drawTime ? new Date(form.drawTime).toISOString() : undefined });
+      setMessage('Đã tạo chương trình thành công.');
+      setForm({ programCode: '', programName: '', description: '', rules: '', prizeName: '', prizeValue: '0', imageUrl: '', videoUrl: '', ticketPrice: '1000', totalTickets: '100', startTime: '', endTime: '', drawTime: '', status: 'draft' });
+    } catch (x) { setMessage(x instanceof Error ? x.message : 'Không thể tạo chương trình.'); }
+  };
+  if (loading) return <Loading />;
+  return <div className="space-y-6"><div><p className="text-sm uppercase tracking-[0.2em] text-cyan-300">Organizer workspace</p><h1 className="mt-2 text-3xl font-black text-white">Quản lý chương trình</h1><p className="mt-2 text-slate-400">Tạo chương trình, theo dõi vé, đơn hàng và giới thiệu giải thưởng bằng ảnh/video.</p></div><ErrorState error={error} /><div className="flex flex-wrap gap-3"><button onClick={() => setTab('programs')} className={`rounded-xl border px-4 py-2 ${tab === 'programs' ? 'border-cyan-400 text-cyan-300' : 'border-slate-700 text-slate-300'}`}>Chương trình</button><button onClick={() => selectedProgram && loadTickets(selectedProgram)} className={`rounded-xl border px-4 py-2 ${tab === 'tickets' ? 'border-cyan-400 text-cyan-300' : 'border-slate-700 text-slate-300'}`}>Quản lý vé</button><button onClick={loadOrders} className={`rounded-xl border px-4 py-2 ${tab === 'orders' ? 'border-cyan-400 text-cyan-300' : 'border-slate-700 text-slate-300'}`}>Đơn hàng</button></div>{tab === 'programs' && <><div className="card-glass overflow-hidden rounded-3xl p-6"><h2 className="mb-4 text-xl font-bold text-white">Chương trình của tôi</h2><div className="grid gap-4 md:grid-cols-2">{data.map((p) => <div key={p.program_id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-cyan-300">{p.program_code}</p><h3 className="mt-1 font-bold text-white">{p.program_name}</h3></div><span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{statusLabel(p.status)}</span></div><p className="mt-3 text-sm text-slate-400">Đã giữ/bán: {p.reserved_tickets ?? 0}/{p.total_tickets} vé</p><button onClick={() => loadTickets(p.program_id)} className="mt-4 rounded-lg border border-slate-600 px-3 py-2 text-sm text-cyan-300">Xem vé</button></div>)}</div></div><form onSubmit={submit} className="card-glass grid gap-4 rounded-3xl p-6 md:grid-cols-2"><h2 className="md:col-span-2 text-xl font-bold text-white">Tạo chương trình mới</h2><input required placeholder="Mã chương trình" value={form.programCode} onChange={(e) => setForm({ ...form, programCode: e.target.value })} className="organizer-input" /><input required placeholder="Tên chương trình" value={form.programName} onChange={(e) => setForm({ ...form, programName: e.target.value })} className="organizer-input" /><textarea placeholder="Mô tả" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="organizer-input md:col-span-2" /><textarea placeholder="Thể lệ chương trình" value={form.rules} onChange={(e) => setForm({ ...form, rules: e.target.value })} className="organizer-input md:col-span-2" /><input placeholder="Tên giải thưởng" value={form.prizeName} onChange={(e) => setForm({ ...form, prizeName: e.target.value })} className="organizer-input" /><input type="number" min="0" placeholder="Giá trị giải thưởng" value={form.prizeValue} onChange={(e) => setForm({ ...form, prizeValue: e.target.value })} className="organizer-input" /><div className="media-upload md:col-span-2"><label className="upload-box"><span>Ảnh sản phẩm</span><small>JPG, PNG, WEBP · tối đa 10MB</small><input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && uploadMedia('image', e.target.files[0])} /></label>{form.imageUrl && <img src={`${API_ORIGIN}${form.imageUrl}`} alt="Xem trước sản phẩm" className="media-preview" />}</div><div className="media-upload md:col-span-2"><label className="upload-box"><span>Video sản phẩm</span><small>MP4, WebM, MOV · tối đa 100MB</small><input type="file" accept="video/*" onChange={(e) => e.target.files?.[0] && uploadMedia('video', e.target.files[0])} /></label>{form.videoUrl && <video src={`${API_ORIGIN}${form.videoUrl}`} controls className="media-preview" />}</div><input required type="number" min="0" placeholder="Giá mỗi vé" value={form.ticketPrice} onChange={(e) => setForm({ ...form, ticketPrice: e.target.value })} className="organizer-input" /><input required type="number" min="1" placeholder="Tổng số vé" value={form.totalTickets} onChange={(e) => setForm({ ...form, totalTickets: e.target.value })} className="organizer-input" /><label className="text-sm text-slate-300">Bắt đầu<input type="datetime-local" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="organizer-input mt-2" /></label><label className="text-sm text-slate-300">Kết thúc<input type="datetime-local" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="organizer-input mt-2" /></label><label className="text-sm text-slate-300">Thời gian quay<input type="datetime-local" value={form.drawTime} onChange={(e) => setForm({ ...form, drawTime: e.target.value })} className="organizer-input mt-2" /></label><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="organizer-input self-end"><option value="draft">Lưu nháp</option><option value="published">Công bố ngay</option></select><button disabled={uploading !== null} className="primary-btn rounded-xl px-5 py-3 font-bold md:col-span-2 disabled:opacity-50">{uploading ? `Đang tải ${uploading === 'image' ? 'ảnh' : 'video'}...` : 'Lưu chương trình'}</button>{message && <p className="md:col-span-2 text-cyan-300">{message}</p>}</form></>}{tab === 'tickets' && <div className="card-glass overflow-hidden rounded-3xl p-6"><h2 className="mb-4 text-xl font-bold text-white">Quản lý số dự thưởng</h2><div className="overflow-x-auto"><table className="min-w-full text-left text-sm text-slate-200"><thead><tr className="border-b border-slate-700"><th className="py-3">Số</th><th>Người dùng</th><th>Trạng thái</th><th>Đơn hàng</th></tr></thead><tbody>{ticketData.map((ticket) => <tr key={ticket.ticket_id} className="border-b border-slate-800"><td className="py-3 font-bold">{ticket.ticket_number}</td><td>{ticket.full_name ?? '--'}</td><td>{ticket.status}</td><td>{ticket.order_code ?? '--'}</td></tr>)}</tbody></table></div></div>}{tab === 'orders' && <div className="card-glass overflow-hidden rounded-3xl p-6"><h2 className="mb-4 text-xl font-bold text-white">Đơn hàng của chương trình</h2>{orders.map((order) => <div key={order.order_id} className="flex flex-wrap justify-between gap-3 border-b border-slate-800 py-4 text-slate-200"><span>{order.order_code} · {order.program_name} · {order.ticket_count} vé</span><span>{money(Number(order.total_amount))} · {order.status}</span></div>)}</div>}</div>;
 }
 
-function TicketManagement() {
-  return (
-    <div className="space-y-6">
-      <AdminNav />
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Quản lý số dự thưởng</h1>
-      </div>
-      <div className="card-glass rounded-3xl p-6">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400">
-                <th className="py-3 pr-6">Số</th>
-                <th className="py-3 pr-6">Người dùng</th>
-                <th className="py-3 pr-6">Trạng thái</th>
-                <th className="py-3 pr-6">Đơn hàng</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tickets.slice(0, 8).map((ticket) => (
-                <tr key={ticket.number} className="border-b border-slate-800">
-                  <td className="py-3 pr-6">{ticket.number}</td>
-                  <td className="py-3 pr-6">{ticket.status === 'Available' ? '--' : ticket.status === 'Held' ? 'Trần B' : 'Nguyễn A'}</td>
-                  <td className="py-3 pr-6">{ticket.status}</td>
-                  <td className="py-3 pr-6">{ticket.status === 'Available' ? '--' : 'ORD001'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
+function OrdersAdmin() { const { data, error, loading } = useApi(api.adminOrders, [] as ApiOrder[]); if (loading) return <Loading />; return <div className="space-y-6"><h1 className="text-3xl font-black text-white">Quản lý đơn hàng</h1><ErrorState error={error} /><div className="card-glass rounded-3xl p-6">{data.map((o) => <div key={o.order_id} className="flex justify-between border-b border-slate-800 py-4 text-slate-200"><span>{o.order_code} - {o.tickets.length} vé</span><span>{money(Number(o.total_amount))} · {o.status}</span></div>)}</div></div>; }
+function AuditPage() { const { data, error, loading } = useApi(api.auditLogs, []); if (loading) return <Loading />; return <div className="space-y-6"><h1 className="text-3xl font-black text-white">Audit Log</h1><ErrorState error={error} /><div className="card-glass rounded-3xl p-6">{data.map((l) => <div key={l.audit_id} className="flex justify-between border-b border-slate-800 py-3 text-slate-200"><span>{format(new Date(l.created_at), 'dd/MM/yyyy HH:mm')} · {l.username}</span><span className="text-cyan-300">{l.action} {l.entity_type}</span></div>)}</div></div>; }
+function DrawingPage() { const { data, loading } = useApi(api.organizerPrograms, [] as ApiProgram[]); const [message, setMessage] = useState(''); if (loading) return <Loading />; return <div className="card-glass rounded-3xl p-8"><p className="text-sm uppercase tracking-[0.2em] text-cyan-300">Organizer workspace</p><h1 className="mt-2 text-3xl font-black text-white">Quản lý quay số</h1><p className="mt-2 text-slate-400">Chỉ các chương trình do bạn tạo mới xuất hiện ở đây.</p>{data.map((p) => <div key={p.program_id} className="mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 py-4 text-slate-200"><span>{p.program_code} · {p.program_name} · {statusLabel(p.status)}</span><button disabled={p.status === 'completed'} onClick={() => api.drawProgram(p.program_id).then(() => setMessage(`Đã tạo kết quả cho ${p.program_name}.`)).catch((e) => setMessage(e.message))} className="primary-btn rounded-xl px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50">{p.status === 'completed' ? 'Đã quay' : 'Tạo kết quả'}</button></div>)}{message && <p className="mt-4 text-cyan-300">{message}</p>}</div>; }
 
-function OrderManagement() {
-  return (
-    <div className="space-y-6">
-      <AdminNav />
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Quản lý đơn hàng</h1>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400">
-                <th className="py-3 pr-6">Mã đơn</th>
-                <th className="py-3 pr-6">Người dùng</th>
-                <th className="py-3 pr-6">Chương trình</th>
-                <th className="py-3 pr-6">Số lượng</th>
-                <th className="py-3 pr-6">Tổng</th>
-                <th className="py-3 pr-6">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orderHistory.map((item) => (
-                <tr key={item.id} className="border-b border-slate-800">
-                  <td className="py-3 pr-6">{item.id}</td>
-                  <td className="py-3 pr-6">Nguyễn Văn A</td>
-                  <td className="py-3 pr-6">{item.program}</td>
-                  <td className="py-3 pr-6">{item.quantity}</td>
-                  <td className="py-3 pr-6">{item.total.toLocaleString()} điểm</td>
-                  <td className="py-3 pr-6 text-emerald-300">{item.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DrawingManagement() {
-  return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <AdminNav />
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Quản lý quay số</h1>
-        <div className="mt-4 text-slate-300">Chương trình #001</div>
-        <div className="mt-2 text-sm text-slate-400">Trạng thái: CLOSED</div>
-      </div>
-
-      <div className="card-glass rounded-3xl p-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm text-slate-300">Public Seed</label>
-            <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white" value="20261003" readOnly />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-slate-300">Commit</label>
-            <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white" value="8f92a7..." readOnly />
-          </div>
-        </div>
-
-        <div className="mt-8 flex justify-end">
-          <button className="primary-btn rounded-xl px-6 py-3 font-bold text-white">Tạo kết quả</button>
-        </div>
-
-        <div className="mt-8 rounded-2xl border border-slate-700 bg-slate-900/80 p-5">
-          <div className="grid gap-4 md:grid-cols-3">
-            {[
-              ['Giải đặc biệt', '05821'],
-              ['Giải nhất', '01235'],
-              ['Giải nhì', '00125'],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</div>
-                <div className="mt-2 text-2xl font-black text-cyan-300">{value}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex justify-end">
-            <button className="success-btn rounded-xl px-6 py-3 font-bold text-slate-950">Công bố</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AuditLogPage() {
-  return (
-    <div className="space-y-6">
-      <AdminNav />
-      <div className="card-glass rounded-3xl p-6">
-        <h1 className="text-3xl font-black text-white">Audit Log</h1>
-      </div>
-      <div className="card-glass rounded-3xl p-6">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead>
-              <tr className="border-b border-slate-700 text-slate-400">
-                <th className="py-3 pr-6">Thời gian</th>
-                <th className="py-3 pr-6">User</th>
-                <th className="py-3 pr-6">Action</th>
-                <th className="py-3 pr-6">Entity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.map((log) => (
-                <tr key={`${log.time}-${log.user}-${log.action}`} className="border-b border-slate-800">
-                  <td className="py-3 pr-6">{log.time}</td>
-                  <td className="py-3 pr-6">{log.user}</td>
-                  <td className="py-3 pr-6 text-cyan-300">{log.action}</td>
-                  <td className="py-3 pr-6">{log.entity}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type UserRole = 'user' | 'admin';
-
-type AuthUser = {
-  name: string;
-  email: string;
-  role: UserRole;
-};
-
-const demoAccounts: Array<AuthUser & { password: string }> = [
-  {
-    name: 'Nguyễn Văn A',
-    email: 'user@luckydraw.vn',
-    password: 'user123',
-    role: 'user',
-  },
-  {
-    name: 'Quản trị viên',
-    email: 'admin@luckydraw.vn',
-    password: 'admin123',
-    role: 'admin',
-  },
-];
-
-function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+function LoginPage({ onLogin }: { onLogin: (user: AuthUser, token: string) => void }) {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [register, setRegister] = useState(false);
+  const [accountRole, setAccountRole] = useState<'USER' | 'ORGANIZER'>('USER');
+  const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-
-  const changeMode = (nextMode: 'login' | 'register' | 'forgot') => {
-    setMode(nextMode);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
     setError('');
-    setNotice('');
+    try {
+      if (register && password !== confirmPassword) {
+        setError('Mật khẩu xác nhận không khớp.');
+        return;
+      }
+      const result = register
+        ? await api.register({ username, email, password, confirmPassword, fullName: name, role: accountRole })
+        : await api.login(email, password);
+      const role: UserRole = result.user.role === 'ADMIN' ? 'admin' : result.user.role === 'ORGANIZER' ? 'organizer' : 'user';
+      onLogin({ name: result.user.fullName, email: result.user.email, role }, result.token);
+      navigate(role === 'admin' ? '/admin' : role === 'organizer' ? '/admin/programs' : '/');
+    } catch (x) {
+      setError(x instanceof Error ? x.message : 'Đăng nhập thất bại.');
+    }
   };
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setNotice('');
-
-    if (mode === 'forgot') {
-      if (!email.trim()) {
-        setError('Vui lòng nhập email để nhận hướng dẫn khôi phục.');
-        return;
-      }
-      setNotice('Nếu email tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi đến bạn.');
-      return;
-    }
-
-    if (mode === 'register') {
-      if (!fullName.trim() || !email.trim() || password.length < 6) {
-        setError('Vui lòng nhập đủ thông tin và mật khẩu có ít nhất 6 ký tự.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError('Mật khẩu xác nhận chưa khớp.');
-        return;
-      }
-      setNotice('Tạo tài khoản thành công. Bạn có thể đăng nhập ngay bây giờ.');
-      setMode('login');
-      setPassword('');
-      setConfirmPassword('');
-      return;
-    }
-
-    const account = demoAccounts.find((item) => item.email === email.trim().toLowerCase() && item.password === password);
-
-    if (!account) {
-      setError('Email hoặc mật khẩu chưa đúng.');
-      return;
-    }
-
-    onLogin(account);
-    navigate(account.role === 'admin' ? '/admin' : '/');
-  };
-
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-intro">
-          <div className="login-logo">L</div>
-          <div>
-            <div className="login-kicker">CỔNG MAY MẮN</div>
-            <div className="login-brand">LUCKYDRAW</div>
-          </div>
-        </div>
-
-        <div className="mt-8">
-          <p className="login-eyebrow">{mode === 'login' ? 'KHU VỰC TRUY CẬP' : mode === 'register' ? 'THÀNH VIÊN MỚI' : 'KHÔI PHỤC TÀI KHOẢN'}</p>
-          <h1 className="login-title">{mode === 'login' ? 'Chào mừng trở lại.' : mode === 'register' ? 'Tạo tài khoản mới.' : 'Lấy lại quyền truy cập.'}</h1>
-          <p className="login-subtitle">{mode === 'login' ? 'Đăng nhập để tiếp tục hành trình săn giải thưởng của bạn.' : mode === 'register' ? 'Tham gia LuckyDraw và bắt đầu chọn những con số may mắn.' : 'Nhập email, chúng tôi sẽ hướng dẫn bạn đặt lại mật khẩu.'}</p>
-        </div>
-
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          {mode === 'register' && <div className="space-y-2">
-            <label className="login-label" htmlFor="register-name">Họ và tên</label>
-            <input id="register-name" value={fullName} onChange={(event) => setFullName(event.target.value)} className="login-input" placeholder="Nguyễn Văn A" autoComplete="name" />
-          </div>}
-          <div className="space-y-2">
-            <label className="login-label" htmlFor="login-email">Email</label>
-            <input id="login-email" value={email} onChange={(event) => setEmail(event.target.value)} className="login-input" placeholder="you@example.com" type="email" autoComplete="email" />
-          </div>
-          {mode !== 'forgot' && <div className="space-y-2">
-            <label className="login-label" htmlFor="login-password">Mật khẩu</label>
-            <input id="login-password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" className="login-input" placeholder="Nhập mật khẩu" autoComplete="current-password" />
-          </div>}
-          {mode === 'register' && <div className="space-y-2">
-            <label className="login-label" htmlFor="confirm-password">Xác nhận mật khẩu</label>
-            <input id="confirm-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" className="login-input" placeholder="Nhập lại mật khẩu" autoComplete="new-password" />
-          </div>}
-          {mode === 'login' && <div className="login-form-options"><label className="login-remember"><input type="checkbox" /> Ghi nhớ đăng nhập</label><button type="button" className="login-link" onClick={() => changeMode('forgot')}>Quên mật khẩu?</button></div>}
-          {error && <p className="login-error" role="alert">{error}</p>}
-          {notice && <p className="login-notice" role="status">{notice}</p>}
-          <button type="submit" className="login-submit">{mode === 'login' ? 'Đăng nhập' : mode === 'register' ? 'Tạo tài khoản' : 'Gửi hướng dẫn'} <ArrowRight className="h-4 w-4" /></button>
-        </form>
-
-        <div className="login-footer">
-          {mode === 'login' ? <span>Chưa có tài khoản? <button type="button" className="login-link" onClick={() => changeMode('register')}>Tạo tài khoản</button></span> : <button type="button" className="login-link" onClick={() => changeMode('login')}>← Quay lại đăng nhập</button>}
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="login-page"><form onSubmit={submit} className="login-card"><div className="login-logo">L</div><h1 className="login-title">{register ? 'Tạo tài khoản' : 'Chào mừng trở lại.'}</h1><p className="login-subtitle">{register ? 'Chọn đúng loại tài khoản để sử dụng các chức năng phù hợp.' : 'Đăng nhập để tiếp tục mua vé hoặc quản lý chương trình.'}</p><div className="login-fields">{register && <><label className="login-field"><span>Họ và tên</span><input className="login-input" placeholder="Nguyễn Văn A" value={name} onChange={(e) => setName(e.target.value)} required /></label><label className="login-field"><span>Tên đăng nhập</span><input className="login-input" placeholder="nguyenvana" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} pattern="[A-Za-z0-9_.-]+" title="Chỉ dùng chữ cái không dấu, số, dấu gạch dưới, chấm hoặc gạch ngang." /></label><label className="login-field"><span>Loại tài khoản</span><select className="login-input" value={accountRole} onChange={(e) => setAccountRole(e.target.value as 'USER' | 'ORGANIZER')}><option value="USER">Người mua vé số</option><option value="ORGANIZER">Người tạo chương trình</option></select></label></>}<label className="login-field"><span>Email</span><input className="login-input" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><label className="login-field"><span>Mật khẩu</span><input className="login-input" type="password" placeholder="Tối thiểu 6 ký tự" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></label>{register && <label className="login-field"><span>Nhập lại mật khẩu</span><input className="login-input" type="password" placeholder="Nhập lại mật khẩu để xác nhận" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} /></label>}</div>{error && <p className="login-error">{error}</p>}<button className="login-submit">{register ? 'Tạo tài khoản' : 'Đăng nhập'} <LogIn className="h-4 w-4" /></button><button type="button" className="login-link" onClick={() => { setRegister((v) => !v); setError(''); setConfirmPassword(''); }}>{register ? 'Đã có tài khoản? Đăng nhập' : 'Chưa có tài khoản? Đăng ký'}</button></form></div>;
 }
 
-function ProtectedRoute({ children, user, role }: { children: React.ReactNode; user: AuthUser | null; role?: UserRole }) {
-  if (!user) return <Navigate to="/login" replace />;
-  if (role && user.role !== role) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />;
-  return <>{children}</>;
-}
-
-function App() {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    const savedUser = window.localStorage.getItem('luckydraw-user');
-    return savedUser ? JSON.parse(savedUser) as AuthUser : null;
-  });
-
-  useEffect(() => {
-    if (currentUser) {
-      window.localStorage.setItem('luckydraw-user', JSON.stringify(currentUser));
-    } else {
-      window.localStorage.removeItem('luckydraw-user');
-    }
-  }, [currentUser]);
-
-  const handleLogout = () => setCurrentUser(null);
-
-  return (
-    <DashboardLayout currentUser={currentUser} onLogout={handleLogout}>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/programs" element={<ProgramsPage />} />
-        <Route path="/programs/:id" element={<ProgramDetailPage />} />
-        <Route path="/choose" element={<ProtectedRoute user={currentUser}><ChooseTicketsPage /></ProtectedRoute>} />
-        <Route path="/checkout" element={<ProtectedRoute user={currentUser}><CheckoutPage /></ProtectedRoute>} />
-        <Route path="/payment" element={<ProtectedRoute user={currentUser}><PaymentPage /></ProtectedRoute>} />
-        <Route path="/success" element={<ProtectedRoute user={currentUser}><PaymentSuccessPage /></ProtectedRoute>} />
-        <Route path="/tickets" element={<ProtectedRoute user={currentUser}><MyTicketsPage /></ProtectedRoute>} />
-        <Route path="/results" element={<ResultsPage />} />
-        <Route path="/verify" element={<VerifyPage />} />
-        <Route path="/winner" element={<WinnerPage />} />
-        <Route path="/admin" element={<ProtectedRoute user={currentUser} role="admin"><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/users" element={<ProtectedRoute user={currentUser} role="admin"><UserManagement /></ProtectedRoute>} />
-        <Route path="/admin/programs" element={<ProtectedRoute user={currentUser} role="admin"><ProgramManagement /></ProtectedRoute>} />
-        <Route path="/admin/tickets" element={<ProtectedRoute user={currentUser} role="admin"><TicketManagement /></ProtectedRoute>} />
-        <Route path="/admin/orders" element={<ProtectedRoute user={currentUser} role="admin"><OrderManagement /></ProtectedRoute>} />
-        <Route path="/admin/draw" element={<ProtectedRoute user={currentUser} role="admin"><DrawingManagement /></ProtectedRoute>} />
-        <Route path="/admin/audit" element={<ProtectedRoute user={currentUser} role="admin"><AuditLogPage /></ProtectedRoute>} />
-        <Route path="/login" element={<LoginPage onLogin={setCurrentUser} />} />
-      </Routes>
-    </DashboardLayout>
-  );
-}
-
+function Protected({ children, user, roles }: { children: ReactNode; user: AuthUser | null; roles?: UserRole[] }) { if (!user) return <Navigate to="/login" replace />; if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />; return <>{children}</>; }
+function App() { const [user, setUser] = useState<AuthUser | null>(() => { const raw = localStorage.getItem('luckydraw-user'); return raw ? JSON.parse(raw) as AuthUser : null; }); const login = (next: AuthUser, token: string) => { localStorage.setItem('luckydraw-token', token); localStorage.setItem('luckydraw-user', JSON.stringify(next)); setUser(next); }; const logout = () => { localStorage.removeItem('luckydraw-token'); localStorage.removeItem('luckydraw-user'); setUser(null); }; useEffect(() => { const handleUnauthorized = () => setUser(null); window.addEventListener('luckydraw:unauthorized', handleUnauthorized); return () => window.removeEventListener('luckydraw:unauthorized', handleUnauthorized); }, []); return <DashboardLayout currentUser={user ? { name: user.name, role: user.role } : null} onLogout={logout}><Routes><Route path="/" element={<HomePage />} /><Route path="/programs" element={<ProgramsPage />} /><Route path="/programs/:id" element={<ProgramDetailPage />} /><Route path="/choose" element={<Protected user={user}><ChooseTicketsPage /></Protected>} /><Route path="/checkout" element={<Protected user={user}><CheckoutPage /></Protected>} /><Route path="/payment" element={<Protected user={user}><PaymentPage /></Protected>} /><Route path="/success" element={<Protected user={user}><SuccessPage /></Protected>} /><Route path="/tickets" element={<Protected user={user}><MyTicketsPage /></Protected>} /><Route path="/results" element={<ResultsPage />} /><Route path="/admin" element={<Protected user={user} roles={['admin']}><AdminDashboard /></Protected>} /><Route path="/admin/programs" element={<Protected user={user} roles={['admin', 'organizer']}><ProgramManagement /></Protected>} /><Route path="/admin/orders" element={<Protected user={user} roles={['admin']}><OrdersAdmin /></Protected>} /><Route path="/admin/draw" element={<Protected user={user} roles={['admin', 'organizer']}><DrawingPage /></Protected>} /><Route path="/admin/audit" element={<Protected user={user} roles={['admin']}><AuditPage /></Protected>} /><Route path="/login" element={<LoginPage onLogin={login} />} /></Routes></DashboardLayout>; }
 export default App;

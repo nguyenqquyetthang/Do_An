@@ -35,3 +35,36 @@ const connectionString = process.env.DATABASE_URL;
 The reusable connection pool is available at
 `backend/src/db.ts`. It exports `pool`, `checkDatabaseConnection()`, and
 `closeDatabaseConnection()`.
+
+## API
+
+Start the development API:
+
+```bash
+npm run dev:api
+```
+
+Build and start the API:
+
+```bash
+npm run build:api
+npm run start:api
+```
+
+Available endpoints:
+
+- `GET /api/health`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/programs`
+- `GET /api/programs/:programId`
+- `GET /api/programs/:programId/tickets`
+- `POST /api/programs/:programId/hold`
+- `POST /api/orders`
+- `POST /api/orders/:orderId/pay`
+- `GET /api/me/orders`
+- `GET /api/results`
+- `POST /api/admin/programs`
+- `POST /api/admin/programs/:programId/draw`
+
+Protected endpoints require `Authorization: Bearer <token>`.

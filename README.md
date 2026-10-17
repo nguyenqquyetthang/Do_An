@@ -9,6 +9,49 @@ npm install
 npm run dev
 ```
 
+## Chạy backend và kết nối PostgreSQL
+
+1. Tạo database `lottery_distribution` trong PostgreSQL.
+2. Chạy `database/scripts/init.sql` trên database vừa tạo.
+3. Kiểm tra file `.env` ở thư mục gốc. File này không được commit và chứa
+   `DATABASE_URL`, `JWT_SECRET`, `PORT` cùng cấu hình CORS.
+4. Khởi động API:
+
+```bash
+npm run dev:api
+```
+
+API chạy mặc định tại `http://localhost:3000` và kiểm tra nhanh bằng:
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+Organizer có thể tải ảnh sản phẩm tối đa 10MB và video tối đa 100MB khi tạo
+chương trình. File local được lưu trong `backend/uploads/` và phục vụ qua
+`/uploads/...`; thư mục này không được commit. Với môi trường production nên
+thay bằng object storage như Azure Blob Storage hoặc S3.
+
+### Tài khoản và phân quyền
+
+Người dùng có thể đăng ký một trong hai loại tài khoản:
+
+- **Người mua vé số (`USER`)**: đăng nhập, chọn số, tạo đơn hàng và thanh toán.
+- **Người tạo chương trình (`ORGANIZER`)**: có toàn bộ quyền của người mua và
+  được tạo chương trình, quản lý chương trình do mình tạo và thực hiện quay số
+  cho các chương trình đó.
+
+Vai trò **`ADMIN`** không thể tự đăng ký; chỉ tài khoản quản trị được cấp trong
+database mới có quyền quản trị toàn hệ thống. Backend luôn kiểm tra role trong
+JWT nên việc ẩn route ở frontend không phải là cơ chế bảo mật duy nhất.
+
+Build production:
+
+```bash
+npm run build:api
+npm run start:api
+```
+
 Build kiểm tra TypeScript và tạo bản production:
 
 ```bash
@@ -27,7 +70,12 @@ npm run build
 
 ## Trạng thái hiện tại
 
-Frontend đã được di chuyển sang `frontend/src` nhưng vẫn giữ nguyên các màn hình và luồng demo hiện có. Backend, database thật và API contract sẽ được triển khai ở các bước tiếp theo.
+Frontend đã có các luồng trang chủ, chương trình, chi tiết chương trình, chọn
+vé, checkout, thanh toán mô phỏng, vé của tôi, kết quả, xác minh, người trúng
+thưởng và các màn hình quản trị. Backend cung cấp API cho xác thực, chương
+trình, vé, giữ vé có khóa giao dịch, đơn hàng, thanh toán mô phỏng, kết quả và
+quay số quản trị. Frontend sẽ gọi API khi backend sẵn sàng và vẫn có dữ liệu
+demo để xem giao diện khi chỉ chạy Vite.
 
 ---
 
