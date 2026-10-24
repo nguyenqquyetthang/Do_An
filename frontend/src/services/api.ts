@@ -43,6 +43,7 @@ export type ApiProgram = {
   ticket_price: string | number;
   total_tickets: number;
   reserved_tickets?: number;
+  prize_value?: string | number;
   start_time: string | null;
   end_time: string | null;
   draw_time: string | null;
@@ -54,6 +55,7 @@ export type OrganizerTicket = ApiTicket & {
   username: string | null;
   full_name: string | null;
   order_code: string | null;
+  program_name?: string | null;
 };
 
 export type OrganizerOrder = {
@@ -100,7 +102,7 @@ export type AuthResponse = { user: ApiUser; token: string };
 export const api = {
   health: () => request<{ status: string; database: string }>('/health'),
   login: (email: string, password: string) => request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (input: { username: string; email: string; password: string; confirmPassword: string; fullName: string; role: 'USER' | 'ORGANIZER' }) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
+  register: (input: { username: string; email: string; password: string; confirmPassword: string; fullName: string }) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   programs: () => request<ApiProgram[]>('/programs'),
   program: (programId: string) => request<ApiProgram>(`/programs/${programId}`),
   tickets: (programId: string) => request<ApiTicket[]>(`/programs/${programId}/tickets`),
@@ -127,7 +129,18 @@ export const api = {
   organizerOrders: () => request<OrganizerOrder[]>('/organizer/orders'),
   adminStats: () => request<{ stats: { programs: number; orders: number; users: number; revenue: number }; monthly: Array<{ name: string; orders: number; revenue: number }>; statuses: Array<{ name: string; value: number }>; programs: ApiProgram[] }>('/admin/stats'),
   adminOrders: () => request<ApiOrder[]>('/admin/orders'),
+  adminTickets: () => request<OrganizerTicket[]>('/admin/tickets'),
+  adminUsers: () => request<ApiUserAdmin[]>('/admin/users'),
+  createOrganizer: (input: { username: string; email: string; password: string; fullName: string }) => request<ApiUserAdmin>('/admin/organizers', { method: 'POST', body: JSON.stringify(input) }),
+  updateProgramStatus: (programId: number, status: 'draft' | 'published' | 'cancelled') => request<ApiProgram>(`/admin/programs/${programId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   auditLogs: () => request<Array<{ audit_id: number; created_at: string; username: string; action: string; entity_type: string }>>('/admin/audit'),
   createProgram: (input: Record<string, unknown>) => request<ApiProgram>('/admin/programs', { method: 'POST', body: JSON.stringify(input) }),
   drawProgram: (programId: number) => request<unknown>(`/admin/programs/${programId}/draw`, { method: 'POST' }),
+};
+
+export type ApiUserAdmin = ApiUser & {
+  status: 'active' | 'inactive' | 'locked';
+  createdAt: string;
+  totalTickets: number;
+  totalSpent: string | number;
 };

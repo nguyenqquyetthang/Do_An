@@ -1,6 +1,7 @@
 # LuckyDraw
 
-Đây là giao diện demo nền tảng quay số LuckyDraw, hiện chạy bằng React + TypeScript + Vite và dữ liệu mẫu.
+Đây là nền tảng quay số LuckyDraw, chạy bằng React + TypeScript + Vite và
+đọc dữ liệu nghiệp vụ từ API PostgreSQL.
 
 ## Chạy frontend
 
@@ -34,16 +35,47 @@ thay bằng object storage như Azure Blob Storage hoặc S3.
 
 ### Tài khoản và phân quyền
 
-Người dùng có thể đăng ký một trong hai loại tài khoản:
-
-- **Người mua vé số (`USER`)**: đăng nhập, chọn số, tạo đơn hàng và thanh toán.
-- **Người tạo chương trình (`ORGANIZER`)**: có toàn bộ quyền của người mua và
-  được tạo chương trình, quản lý chương trình do mình tạo và thực hiện quay số
-  cho các chương trình đó.
+Người dùng chỉ có thể tự đăng ký tài khoản **người mua vé số (`USER`)**:
+đăng nhập, chọn số, tạo đơn hàng và thanh toán. Tài khoản **`ORGANIZER`** và
+**`ADMIN`** được cấp riêng trong database; API đăng ký công khai cũng luôn ép
+vai trò mới thành `USER`, không tin role do client gửi lên.
 
 Vai trò **`ADMIN`** không thể tự đăng ký; chỉ tài khoản quản trị được cấp trong
 database mới có quyền quản trị toàn hệ thống. Backend luôn kiểm tra role trong
 JWT nên việc ẩn route ở frontend không phải là cơ chế bảo mật duy nhất.
+
+### Cấp quyền Admin bằng database
+
+Tạo tài khoản mới ở màn hình đăng ký như một người mua vé. Mật khẩu lúc này
+được backend tự băm bằng bcrypt. Sau đó, kết nối vào database
+`lottery_distribution` và đổi duy nhất role của tài khoản:
+
+```sql
+UPDATE users
+SET role_id = (SELECT role_id FROM roles WHERE role_name = 'ADMIN'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE LOWER(email) = LOWER('admin@luckydraw.vn');
+```
+
+Kiểm tra kết quả:
+
+```sql
+SELECT u.username, u.email, r.role_name
+FROM users u
+JOIN roles r ON r.role_id = u.role_id
+WHERE LOWER(u.email) = LOWER('admin@luckydraw.vn');
+```
+
+Kết quả phải là `ADMIN`. Không sửa `password_hash`; tài khoản vẫn đăng nhập
+bằng đúng email và mật khẩu đã đăng ký. Vì bảng `users` chỉ có một cột
+`role_id`, mỗi tài khoản chỉ có một vai trò duy nhất: `USER`, `ORGANIZER`,
+`ADMIN` hoặc `AUDITOR`, không thể dùng song song nhiều chức năng.
+
+Sau khi đăng nhập, backend đọc role từ database và tự chuyển:
+
+- `ADMIN` → `/admin`
+- `ORGANIZER` → `/admin/programs`
+- `USER` → trang dành cho người mua vé
 
 Build production:
 
@@ -74,8 +106,8 @@ Frontend đã có các luồng trang chủ, chương trình, chi tiết chương
 vé, checkout, thanh toán mô phỏng, vé của tôi, kết quả, xác minh, người trúng
 thưởng và các màn hình quản trị. Backend cung cấp API cho xác thực, chương
 trình, vé, giữ vé có khóa giao dịch, đơn hàng, thanh toán mô phỏng, kết quả và
-quay số quản trị. Frontend sẽ gọi API khi backend sẵn sàng và vẫn có dữ liệu
-demo để xem giao diện khi chỉ chạy Vite.
+quay số quản trị. Frontend gọi API backend; khi database hoặc API chưa chạy, các màn hình sẽ
+hiển thị trạng thái lỗi/tải dữ liệu thay vì dùng dữ liệu giả.
 
 ---
 

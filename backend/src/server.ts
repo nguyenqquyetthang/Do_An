@@ -18,7 +18,22 @@ if (!jwtSecret) {
   throw new Error('JWT_SECRET is not configured. Add it to the root .env file.');
 }
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173' }));
+const allowedOrigins = new Set([
+  process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
+]);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`Origin không được phép: ${origin}`));
+  },
+}));
 app.use(express.json({ limit: '1mb' }));
 const uploadDirectory = path.resolve('backend/uploads');
 fs.mkdirSync(uploadDirectory, { recursive: true });
@@ -100,11 +115,15 @@ const credentialsSchema = z.object({
 const registerSchema = credentialsSchema.extend({
   fullName: z.string().trim().min(2).max(150),
   username: z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_.-]+$/, 'Tên đăng nhập chỉ được chứa chữ không dấu, số, dấu gạch dưới, chấm hoặc gạch ngang.'),
-  role: z.enum(['USER', 'ORGANIZER']).default('USER'),
   confirmPassword: z.string().min(6).max(128),
 }).refine((input) => input.password === input.confirmPassword, {
   path: ['confirmPassword'],
   message: 'Mật khẩu xác nhận không khớp.',
+});
+
+const organizerSchema = credentialsSchema.extend({
+  fullName: z.string().trim().min(2).max(150),
+  username: z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_.-]+$/),
 });
 
 const programSchema = z.object({
@@ -161,9 +180,9 @@ app.post('/api/auth/register', asyncRoute(async (request, response) => {
   try {
     result = await pool.query(
       `INSERT INTO users (role_id, username, email, password_hash, full_name)
-       SELECT role_id, $1, LOWER($2), $3, $4 FROM roles WHERE role_name = $5
+       SELECT role_id, $1, LOWER($2), $3, $4 FROM roles WHERE role_name = 'USER'
        RETURNING user_id, username, email, full_name`,
-      [input.username, input.email, passwordHash, input.fullName, input.role],
+      [input.username, input.email, passwordHash, input.fullName],
     );
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
@@ -184,9 +203,9 @@ app.post('/api/auth/register', asyncRoute(async (request, response) => {
       username: user.username,
       email: user.email,
       fullName: user.full_name,
-      role: input.role,
+      role: 'USER',
     },
-    token: issueToken(user.user_id, input.role),
+    token: issueToken(user.user_id, 'USER'),
   });
 }));
 
@@ -217,7 +236,9 @@ app.post('/api/auth/login', asyncRoute(async (request, response) => {
 
 app.get('/api/programs', asyncRoute(async (_request, response) => {
   const result = await pool.query(
-    `SELECT p.*, COALESCE(SUM(CASE WHEN t.status IN ('held', 'sold') THEN 1 ELSE 0 END), 0)::int AS reserved_tickets
+    `SELECT p.*,
+            COALESCE(SUM(CASE WHEN t.status IN ('held', 'sold') THEN 1 ELSE 0 END), 0)::int AS reserved_tickets,
+            COALESCE((SELECT MAX(pr.estimated_value) FROM prizes pr WHERE pr.program_id = p.program_id), 0)::numeric AS prize_value
      FROM lottery_programs p
      LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
      GROUP BY p.program_id
@@ -231,7 +252,9 @@ app.get('/api/programs/:programId', asyncRoute(async (request, response) => {
     `SELECT p.*, COALESCE(jsonb_agg(to_jsonb(pr) - 'program_id') FILTER (WHERE pr.prize_id IS NOT NULL), '[]') AS prizes
      FROM lottery_programs p
      LEFT JOIN prizes pr ON pr.program_id = p.program_id
-     WHERE p.program_id = $1
+     WHERE p.program_id::text = $1
+        OR LPAD(p.program_id::text, 3, '0') = $1
+        OR p.program_code = $1
      GROUP BY p.program_id`,
     [request.params.programId],
   );
@@ -245,7 +268,14 @@ app.get('/api/programs/:programId', asyncRoute(async (request, response) => {
 app.get('/api/programs/:programId/tickets', asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT ticket_id, ticket_number, price, status, held_until
-     FROM lottery_tickets WHERE program_id = $1 ORDER BY ticket_number`,
+     FROM lottery_tickets
+     WHERE program_id IN (
+       SELECT p.program_id FROM lottery_programs p
+       WHERE p.program_id::text = $1
+          OR LPAD(p.program_id::text, 3, '0') = $1
+          OR p.program_code = $1
+     )
+     ORDER BY ticket_number`,
     [request.params.programId],
   );
   response.json(result.rows);
@@ -448,6 +478,69 @@ app.get('/api/admin/stats', requireAuth, requireAdmin, asyncRoute(async (_reques
   response.json({ stats: stats.rows[0], monthly: monthly.rows, statuses: statuses.rows, programs: programs.rows });
 }));
 
+app.get('/api/admin/users', requireAuth, requireAdmin, asyncRoute(async (_request, response) => {
+  const result = await pool.query(
+    `SELECT u.user_id, u.username, u.email, u.full_name, u.status, u.created_at,
+            r.role_name,
+            COUNT(DISTINCT oi.ticket_id) FILTER (WHERE o.status = 'confirmed')::int AS total_tickets,
+            COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'success'), 0) AS total_spent
+     FROM users u
+     JOIN roles r ON r.role_id = u.role_id
+     LEFT JOIN orders o ON o.user_id = u.user_id
+     LEFT JOIN order_items oi ON oi.order_id = o.order_id
+     LEFT JOIN payments p ON p.order_id = o.order_id
+     GROUP BY u.user_id, r.role_name
+     ORDER BY u.created_at DESC`,
+  );
+  response.json(result.rows.map((user) => ({
+    userId: user.user_id,
+    username: user.username,
+    email: user.email,
+    fullName: user.full_name,
+    role: user.role_name,
+    status: user.status,
+    createdAt: user.created_at,
+    totalTickets: user.total_tickets,
+    totalSpent: user.total_spent,
+  })));
+}));
+
+app.post('/api/admin/organizers', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const input = organizerSchema.parse(request.body);
+  const passwordHash = await bcrypt.hash(input.password, 12);
+  try {
+    const result = await pool.query(
+      `INSERT INTO users (role_id, username, email, password_hash, full_name, status, email_verified)
+       SELECT role_id, $1, LOWER($2), $3, $4, 'active', TRUE FROM roles WHERE role_name = 'ORGANIZER'
+       RETURNING user_id, username, email, full_name, status, created_at`,
+      [input.username, input.email, passwordHash, input.fullName],
+    );
+    const user = result.rows[0];
+    await pool.query(
+      `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+       VALUES ($1, 'CREATE', 'USER', $2, jsonb_build_object('role', 'ORGANIZER'))`,
+      [request.user?.userId, user.user_id],
+    );
+    response.status(201).json({
+      userId: user.user_id,
+      username: user.username,
+      email: user.email,
+      fullName: user.full_name,
+      role: 'ORGANIZER',
+      status: user.status,
+      createdAt: user.created_at,
+      totalTickets: 0,
+      totalSpent: 0,
+    });
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+      response.status(409).json({ error: 'Tên đăng nhập hoặc email đã tồn tại.' });
+      return;
+    }
+    throw error;
+  }
+}));
+
 app.get('/api/admin/orders', requireAuth, requireAdmin, asyncRoute(async (_request, response) => {
   const result = await pool.query(`SELECT o.*, jsonb_agg(jsonb_build_object(
     'ticketId', t.ticket_id, 'ticketNumber', t.ticket_number, 'programId', p.program_id, 'programName', p.program_name
@@ -456,6 +549,21 @@ app.get('/api/admin/orders', requireAuth, requireAdmin, asyncRoute(async (_reque
     JOIN lottery_tickets t ON t.ticket_id = oi.ticket_id
     JOIN lottery_programs p ON p.program_id = t.program_id
     GROUP BY o.order_id ORDER BY o.created_at DESC LIMIT 100`);
+  response.json(result.rows);
+}));
+
+app.get('/api/admin/tickets', requireAuth, requireAdmin, asyncRoute(async (_request, response) => {
+  const result = await pool.query(
+    `SELECT t.ticket_id, t.ticket_number, t.price, t.status, t.held_until,
+            u.username, u.full_name, o.order_code, p.program_name
+     FROM lottery_tickets t
+     JOIN lottery_programs p ON p.program_id = t.program_id
+     LEFT JOIN users u ON u.user_id = t.held_by
+     LEFT JOIN order_items oi ON oi.ticket_id = t.ticket_id
+     LEFT JOIN orders o ON o.order_id = oi.order_id
+     ORDER BY t.created_at DESC
+     LIMIT 500`,
+  );
   response.json(result.rows);
 }));
 
@@ -488,7 +596,7 @@ app.post('/api/admin/programs', requireAuth, requireProgramManager, asyncRoute(a
     const result = await client.query(
       `INSERT INTO lottery_programs (created_by, program_code, program_name, description, rules, ticket_price, total_tickets, start_time, end_time, draw_time, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [request.user?.userId, input.programCode, input.programName, input.description, input.rules, input.ticketPrice, input.totalTickets, input.startTime, input.endTime, input.drawTime, input.status ?? 'draft'],
+      [request.user?.userId, input.programCode, input.programName, input.description, input.rules, input.ticketPrice, input.totalTickets, input.startTime, input.endTime, input.drawTime, request.user?.role === 'ADMIN' ? input.status ?? 'draft' : 'draft'],
     );
     const program = result.rows[0];
     for (let index = 1; index <= input.totalTickets; index += 1) {
@@ -512,6 +620,29 @@ app.post('/api/admin/programs', requireAuth, requireProgramManager, asyncRoute(a
   } finally {
     client.release();
   }
+}));
+
+app.patch('/api/admin/programs/:programId/status', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const input = z.object({ status: z.enum(['draft', 'published', 'cancelled']) }).parse(request.body);
+  const result = await pool.query(
+    `UPDATE lottery_programs
+     SET status = $1,
+         published_at = CASE WHEN $1 = 'published' THEN CURRENT_TIMESTAMP ELSE published_at END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE program_id = $2
+     RETURNING *`,
+    [input.status, request.params.programId],
+  );
+  if (!result.rows[0]) {
+    response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+     VALUES ($1, $2, 'PROGRAM', $3, jsonb_build_object('status', $4))`,
+    [request.user?.userId, input.status === 'published' ? 'PUBLISH' : input.status === 'cancelled' ? 'CANCEL' : 'UNPUBLISH', request.params.programId, input.status],
+  );
+  response.json(result.rows[0]);
 }));
 
 app.post('/api/admin/programs/:programId/draw', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {

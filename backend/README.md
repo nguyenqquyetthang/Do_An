@@ -54,7 +54,7 @@ npm run start:api
 Available endpoints:
 
 - `GET /api/health`
-- `POST /api/auth/register`
+- `POST /api/auth/register` (mọi tài khoản đăng ký công khai đều là `USER`)
 - `POST /api/auth/login`
 - `GET /api/programs`
 - `GET /api/programs/:programId`

@@ -36,7 +36,7 @@ export function ProgramCard({ program }: { program: Program }) {
           </div>
         </div>
 
-        <Link to={`/programs/${program.id}`} className="primary-btn w-full rounded-xl">
+        <Link to={`/chuong-trinh/${program.id}`} className="primary-btn w-full rounded-xl">
           {program.displayStatus === 'Đã kết thúc' ? 'Xem kết quả' : 'Chọn số'}
         </Link>
       </div>
