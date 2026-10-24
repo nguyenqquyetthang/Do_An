@@ -24,7 +24,6 @@ import {
   RefreshCw,
   UserCheck,
 } from 'lucide-react';
-import { AdminNav } from './AdminNav';
 import {
   mockUsers,
   type UserItem,
@@ -269,10 +268,6 @@ export function UserManagement() {
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
-
-      {/* Admin Navigation Tabs */}
-      <AdminNav />
-
       {/* Header Panel */}
       <div className="card-glass rounded-3xl p-6 lg:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

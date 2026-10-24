@@ -78,14 +78,6 @@ function requireAdmin(request: AuthenticatedRequest, response: Response, next: N
   next();
 }
 
-function requireProgramManager(request: AuthenticatedRequest, response: Response, next: NextFunction) {
-  if (request.user?.role !== 'ADMIN' && request.user?.role !== 'ORGANIZER') {
-    response.status(403).json({ error: 'Chỉ người tạo chương trình hoặc quản trị viên mới có quyền này.' });
-    return;
-  }
-  next();
-}
-
 function asyncRoute(handler: (request: AuthenticatedRequest, response: Response) => Promise<void>) {
   return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
     handler(request, response).catch(next);
@@ -100,7 +92,7 @@ const credentialsSchema = z.object({
 const registerSchema = credentialsSchema.extend({
   fullName: z.string().trim().min(2).max(150),
   username: z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_.-]+$/, 'Tên đăng nhập chỉ được chứa chữ không dấu, số, dấu gạch dưới, chấm hoặc gạch ngang.'),
-  role: z.enum(['USER', 'ORGANIZER']).default('USER'),
+  role: z.enum(['USER']).default('USER'),
   confirmPassword: z.string().min(6).max(128),
 }).refine((input) => input.password === input.confirmPassword, {
   path: ['confirmPassword'],
@@ -125,7 +117,7 @@ app.get('/api/health', asyncRoute(async (_request, response) => {
   response.json({ status: 'ok', database: 'connected' });
 }));
 
-app.post('/api/organizer/media', requireAuth, requireProgramManager, (request, response, next) => {
+app.post('/api/organizer/media', requireAuth, requireAdmin, (request, response, next) => {
   mediaUpload.single('file')(request, response, (error: unknown) => {
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       response.status(413).json({ error: 'File quá lớn. Ảnh tối đa 10MB và video tối đa 100MB.' });
@@ -383,7 +375,7 @@ app.get('/api/results', asyncRoute(async (_request, response) => {
   response.json(result.rows);
 }));
 
-app.get('/api/organizer/programs', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+app.get('/api/organizer/programs', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT p.*, COUNT(t.ticket_id) FILTER (WHERE t.status IN ('held', 'sold'))::int AS reserved_tickets
      FROM lottery_programs p
@@ -395,7 +387,7 @@ app.get('/api/organizer/programs', requireAuth, requireProgramManager, asyncRout
   response.json(result.rows);
 }));
 
-app.get('/api/organizer/programs/:programId/tickets', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+app.get('/api/organizer/programs/:programId/tickets', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT t.ticket_id, t.ticket_number, t.price, t.status, t.held_until,
             u.username, u.full_name, o.order_code
@@ -411,7 +403,7 @@ app.get('/api/organizer/programs/:programId/tickets', requireAuth, requireProgra
   response.json(result.rows);
 }));
 
-app.get('/api/organizer/orders', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+app.get('/api/organizer/orders', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT o.order_id, o.order_code, o.status, o.total_amount, o.created_at,
             p.program_id, p.program_name,
@@ -466,7 +458,7 @@ app.get('/api/admin/audit', requireAuth, requireAdmin, asyncRoute(async (_reques
   response.json(result.rows);
 }));
 
-app.post('/api/admin/programs', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+app.post('/api/admin/programs', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const input = programSchema.extend({
     prizeName: z.preprocess(
       (value) => value === '' ? undefined : value,
@@ -514,7 +506,78 @@ app.post('/api/admin/programs', requireAuth, requireProgramManager, asyncRoute(a
   }
 }));
 
-app.post('/api/admin/programs/:programId/draw', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+app.put('/api/admin/programs/:programId', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const input = programSchema.extend({
+    prizeName: z.preprocess(
+      (value) => value === '' ? undefined : value,
+      z.string().trim().min(1).max(200).optional(),
+    ),
+    prizeValue: z.number().nonnegative().optional(),
+    imageUrl: z.preprocess(
+      (value) => value === '' ? undefined : value,
+      z.string().max(1000).refine((value) => value.startsWith('/') || /^https?:\/\//.test(value), 'URL ảnh không hợp lệ.').optional(),
+    ),
+    videoUrl: z.preprocess(
+      (value) => value === '' ? undefined : value,
+      z.string().max(1000).refine((value) => value.startsWith('/') || /^https?:\/\//.test(value), 'URL video không hợp lệ.').optional(),
+    ),
+  }).parse(request.body);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT * FROM lottery_programs WHERE program_id = $1 AND ($2 = 'ADMIN' OR created_by = $3)`,
+      [request.params.programId, request.user?.role, request.user?.userId],
+    );
+    if (!existing.rows[0]) {
+      await client.query('ROLLBACK');
+      response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+      return;
+    }
+    const result = await client.query(
+      `UPDATE lottery_programs
+       SET program_code = $1, program_name = $2, description = $3, rules = $4,
+           ticket_price = $5, start_time = $6, end_time = $7, draw_time = $8,
+           status = $9, updated_at = CURRENT_TIMESTAMP
+       WHERE program_id = $10
+       RETURNING *`,
+      [
+        input.programCode, input.programName, input.description ?? null, input.rules ?? null,
+        input.ticketPrice, input.startTime ?? null, input.endTime ?? null, input.drawTime ?? null,
+        input.status ?? existing.rows[0].status, request.params.programId,
+      ],
+    );
+    // Upsert prize if prizeName provided
+    if (input.prizeName) {
+      const prizeExists = await client.query(
+        `SELECT prize_id FROM prizes WHERE program_id = $1 AND prize_type = 'main' LIMIT 1`,
+        [request.params.programId],
+      );
+      if (prizeExists.rows[0]) {
+        await client.query(
+          `UPDATE prizes SET prize_name = $1, estimated_value = $2, image_url = $3, video_url = $4
+           WHERE prize_id = $5`,
+          [input.prizeName, input.prizeValue ?? 0, input.imageUrl ?? null, input.videoUrl ?? null, prizeExists.rows[0].prize_id],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO prizes (program_id, prize_name, prize_type, estimated_value, image_url, video_url)
+           VALUES ($1, $2, 'main', $3, $4, $5)`,
+          [request.params.programId, input.prizeName, input.prizeValue ?? 0, input.imageUrl ?? null, input.videoUrl ?? null],
+        );
+      }
+    }
+    await client.query('COMMIT');
+    response.json(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}));
+
+app.post('/api/admin/programs/:programId/draw', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const seed = crypto.randomBytes(32).toString('hex');
   const commitment = crypto.createHash('sha256').update(seed).digest('hex');
   const client = await pool.connect();

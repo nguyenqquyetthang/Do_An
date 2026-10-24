@@ -30,7 +30,7 @@ export type ApiUser = {
   username: string;
   email: string;
   fullName: string;
-  role: 'ADMIN' | 'ORGANIZER' | 'USER' | 'AUDITOR';
+  role: 'ADMIN' | 'USER' | 'AUDITOR';
 };
 
 export type ApiProgram = {
@@ -100,7 +100,7 @@ export type AuthResponse = { user: ApiUser; token: string };
 export const api = {
   health: () => request<{ status: string; database: string }>('/health'),
   login: (email: string, password: string) => request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (input: { username: string; email: string; password: string; confirmPassword: string; fullName: string; role: 'USER' | 'ORGANIZER' }) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
+  register: (input: { username: string; email: string; password: string; confirmPassword: string; fullName: string; role: 'USER' }) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   programs: () => request<ApiProgram[]>('/programs'),
   program: (programId: string) => request<ApiProgram>(`/programs/${programId}`),
   tickets: (programId: string) => request<ApiTicket[]>(`/programs/${programId}/tickets`),
@@ -129,5 +129,6 @@ export const api = {
   adminOrders: () => request<ApiOrder[]>('/admin/orders'),
   auditLogs: () => request<Array<{ audit_id: number; created_at: string; username: string; action: string; entity_type: string }>>('/admin/audit'),
   createProgram: (input: Record<string, unknown>) => request<ApiProgram>('/admin/programs', { method: 'POST', body: JSON.stringify(input) }),
+  updateProgram: (programId: number, input: Record<string, unknown>) => request<ApiProgram>(`/admin/programs/${programId}`, { method: 'PUT', body: JSON.stringify(input) }),
   drawProgram: (programId: number) => request<unknown>(`/admin/programs/${programId}/draw`, { method: 'POST' }),
 };

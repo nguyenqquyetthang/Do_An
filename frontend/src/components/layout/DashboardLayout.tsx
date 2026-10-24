@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
+import { AdminNav } from '../admin/AdminNav';
+
 const navItems = [
   { label: 'Trang chủ', to: '/' },
   { label: 'Chương trình', to: '/programs' },
@@ -9,7 +11,7 @@ const navItems = [
 
 type AuthUser = {
   name: string;
-  role: 'user' | 'organizer' | 'admin';
+  role: 'user' | 'admin';
 };
 
 export function DashboardLayout({
@@ -22,6 +24,8 @@ export function DashboardLayout({
   onLogout: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+  const isAdminPage = location.pathname.startsWith('/admin');
 
   return (
     <div className="app-shell">
@@ -43,7 +47,7 @@ export function DashboardLayout({
           <div className="header-actions hidden md:flex">
             {currentUser ? (
               <>
-                <Link to={currentUser.role === 'admin' ? '/admin' : currentUser.role === 'organizer' ? '/admin/programs' : '/'} className="ghost-btn inline-flex items-center gap-2">
+                <Link to={currentUser.role === 'admin' ? '/admin' : '/'} className="ghost-btn inline-flex items-center gap-2">
                   <span className="status-dot" />
                   {currentUser.name}
                 </Link>
@@ -75,7 +79,14 @@ export function DashboardLayout({
         )}
       </header>
 
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        {isAdminPage && currentUser?.role === 'admin' && (
+          <div className="mb-6">
+            <AdminNav />
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }
