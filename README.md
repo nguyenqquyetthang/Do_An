@@ -14,6 +14,8 @@ npm run dev
 
 1. Tạo database `lottery_distribution` trong PostgreSQL.
 2. Chạy `database/scripts/init.sql` trên database vừa tạo.
+   Nếu database đã tồn tại, chạy thêm `database/migrations/002_program_review_workflow.sql`
+   để bổ sung trạng thái duyệt chương trình và lý do từ chối.
 3. Kiểm tra file `.env` ở thư mục gốc. File này không được commit và chứa
    `DATABASE_URL`, `JWT_SECRET`, `PORT` cùng cấu hình CORS.
 4. Khởi động API:
@@ -22,11 +24,22 @@ npm run dev
 npm run dev:api
 ```
 
+Hoặc chạy frontend và API cùng lúc:
+
+```bash
+npm run dev:full
+```
+
 API chạy mặc định tại `http://localhost:3000` và kiểm tra nhanh bằng:
 
 ```bash
 curl http://localhost:3000/api/health
 ```
+
+Nếu trình duyệt báo `Failed to fetch`, hãy mở
+`http://localhost:3000/api/health`. Kết quả đúng là
+`{"status":"ok","database":"connected"}`. Nếu không đúng, kiểm tra PostgreSQL
+đang chạy và các giá trị kết nối trong `.env` ở thư mục gốc.
 
 Organizer có thể tải ảnh sản phẩm tối đa 10MB và video tối đa 100MB khi tạo
 chương trình. File local được lưu trong `backend/uploads/` và phục vụ qua
@@ -90,10 +103,16 @@ Build kiểm tra TypeScript và tạo bản production:
 npm run build
 ```
 
-## Cấu trúc repository
+## Cấu trúc MVC
 
-- `frontend/`: ứng dụng React, gồm `src/components`, `src/features`, `src/pages`, `src/services` và các lớp frontend khác.
-- `backend/`: khung module API và test backend, chưa triển khai runtime.
+- `frontend/src/data/`: model và kiểu dữ liệu dùng chung của giao diện.
+- `frontend/src/pages/` và `frontend/src/components/`: view React, giữ nguyên route và giao diện người dùng.
+- `frontend/src/store/` và `frontend/src/hooks/`: controller/state layer, điều phối giao diện với API.
+- `frontend/src/lib/`: API client, formatter và các tiện ích nghiệp vụ.
+- `backend/src/controllers/`: controller xử lý nghiệp vụ HTTP.
+- `backend/src/middleware/`: xác thực JWT, phân quyền và xử lý route bất đồng bộ.
+- `backend/src/db.ts`: lớp truy cập dữ liệu PostgreSQL.
+- `backend/src/config/`: cấu hình môi trường; `backend/src/app.ts` cấu hình Express, `backend/src/server.ts` chỉ khởi động tiến trình.
 - `database/`: migration, seed, schema và script SQL.
 - `tests/`: E2E, load, security và dữ liệu kiểm thử.
 - `docs/`: SRS, kiến trúc, API, kế hoạch test và ADR.
@@ -103,9 +122,9 @@ npm run build
 ## Trạng thái hiện tại
 
 Frontend đã có các luồng trang chủ, chương trình, chi tiết chương trình, chọn
-vé, checkout, thanh toán mô phỏng, vé của tôi, kết quả, xác minh, người trúng
+vé, checkout, thanh toán, vé của tôi, kết quả, xác minh, người trúng
 thưởng và các màn hình quản trị. Backend cung cấp API cho xác thực, chương
-trình, vé, giữ vé có khóa giao dịch, đơn hàng, thanh toán mô phỏng, kết quả và
+trình, vé, giữ vé có khóa giao dịch, đơn hàng, thanh toán, kết quả và
 quay số quản trị. Frontend gọi API backend; khi database hoặc API chưa chạy, các màn hình sẽ
 hiển thị trạng thái lỗi/tải dữ liệu thay vì dùng dữ liệu giả.
 

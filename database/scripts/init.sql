@@ -48,6 +48,9 @@ CREATE TABLE lottery_programs (
     draw_time TIMESTAMPTZ,
     status VARCHAR(20) NOT NULL DEFAULT 'draft',
     published_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    reviewed_by BIGINT REFERENCES users(user_id),
+    reviewed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT ck_program_price CHECK (ticket_price >= 0),
@@ -58,8 +61,8 @@ CREATE TABLE lottery_programs (
     ),
     CONSTRAINT ck_program_status CHECK (
         status IN (
-            'draft', 'published', 'closed',
-            'drawing', 'completed', 'cancelled'
+            'draft', 'pending_review', 'rejected', 'upcoming', 'active',
+            'ended', 'published', 'closed', 'drawing', 'completed', 'cancelled'
         )
     )
 );

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-labelledby="title desc">
+  <title id="title">Placeholder image</title>
+  <desc id="desc">A neutral placeholder for an image that has not loaded yet.</desc>
+  <rect width="640" height="640" fill="#e9e9e9"/>
+  <g fill="none" stroke="#d5d5d5" stroke-width="2">
+    <circle cx="320" cy="320" r="72"/>
+    <circle cx="320" cy="320" r="45"/>
+    <path d="M320 248v-72M320 392v72M248 320h-72M392 320h72"/>
+    <path d="m269 269-51-51M371 269l51-51M269 371l-51 51M371 371l51 51"/>
+  </g>
+  <rect x="291" y="291" width="58" height="58" rx="4" fill="#e9e9e9" stroke="#c8c8c8" stroke-width="2"/>
+  <path d="m298 338 15-16 11 10 8-8 10 14h-44z" fill="#bdbdbd"/>
+  <circle cx="313" cy="307" r="5" fill="#bdbdbd"/>
+</svg>
