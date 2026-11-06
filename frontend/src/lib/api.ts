@@ -17,6 +17,38 @@ export type ApiTicket = {
   held_until: string | null;
 };
 
+export type PaymentQrData = {
+  orderId: number;
+  orderCode: string;
+  orderStatus: string;
+  amount: number;
+  bankCode: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  transferContent: string;
+  qrCodeUrl: string;
+  expiresAt: string | null;
+  isSimulated: boolean;
+};
+
+export type PaymentResponse = {
+  order: ApiOrder;
+  payment: {
+    payment_id: number;
+    payment_code: string;
+    payment_method: string;
+    amount: string | number;
+    status: string;
+    transaction_reference: string;
+    paid_at: string;
+    idempotency_key?: string | null;
+    qr_code_url?: string;
+  };
+  replayed?: boolean;
+  message?: string;
+};
+
 export type ApiOrder = {
   order_id: number;
   order_code: string;
@@ -106,8 +138,40 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ programId, ticketNumbers }),
     }),
-  payOrder: (orderId: string) =>
-    request<{ order: ApiOrder }>(`/orders/${orderId}/pay`, { method: "POST" }),
+  getPaymentQr: (orderId: string) =>
+    request<PaymentQrData>(`/orders/${orderId}/payment-qr`),
+  payOrder: (orderId: string, options?: { paymentMethod?: string; idempotencyKey?: string }) =>
+    request<PaymentResponse>(`/orders/${orderId}/pay`, {
+      method: "POST",
+      headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined,
+      body: JSON.stringify({
+        paymentMethod: options?.paymentMethod ?? "qr_simulation",
+        idempotencyKey: options?.idempotencyKey,
+      }),
+    }),
+  myPayments: () => request<Array<{
+    payment_id: number;
+    payment_code: string;
+    order_code: string;
+    amount: string | number;
+    payment_method: string;
+    transaction_reference: string;
+    status: string;
+    paid_at: string;
+    program_name?: string;
+  }>>("/me/payments"),
+  adminAudit: () => request<Array<{
+    audit_id: number;
+    created_at: string;
+    username: string;
+    action: string;
+    entity_type: string;
+    entity_id?: string;
+    old_data?: any;
+    new_data?: any;
+    ip_address?: string;
+    user_agent?: string;
+  }>>("/admin/audit"),
   cancelOrder: (orderId: string) =>
     request<{ order: ApiOrder }>(`/orders/${orderId}/cancel`, { method: "POST" }),
   myOrders: () => request<ApiOrder[]>("/me/orders"),

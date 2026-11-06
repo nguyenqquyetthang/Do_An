@@ -124,7 +124,48 @@ app.post('/api/auth/register', asyncRoute(authController.register));
 app.post('/api/auth/login', asyncRoute(authController.login));
 app.get('/api/auth/me', requireAuth, asyncRoute(authController.me));
 
+let isSyncing = false;
+export async function syncProgramStatuses() {
+  if (isSyncing) return;
+  isSyncing = true;
+  try {
+    // Tự động chuyển 'upcoming' / 'published' sang 'active' khi start_time <= CURRENT_TIMESTAMP
+    // Sử dụng câu lệnh UPDATE nguyên tử của PostgreSQL (Row-level lock) để tránh race condition
+    await pool.query(`
+      UPDATE lottery_programs
+      SET status = 'active', updated_at = CURRENT_TIMESTAMP
+      WHERE status IN ('upcoming', 'published')
+        AND start_time IS NOT NULL
+        AND start_time <= CURRENT_TIMESTAMP
+        AND (end_time IS NULL OR end_time > CURRENT_TIMESTAMP);
+    `);
+
+    // Tự động chuyển sang 'ended' khi end_time <= CURRENT_TIMESTAMP
+    await pool.query(`
+      UPDATE lottery_programs
+      SET status = 'ended', updated_at = CURRENT_TIMESTAMP
+      WHERE status IN ('active', 'upcoming', 'published')
+        AND end_time IS NOT NULL
+        AND end_time <= CURRENT_TIMESTAMP;
+    `);
+
+    // Tự động giải phóng các vé giữ quá hạn mà chưa thanh toán
+    await pool.query(`
+      UPDATE lottery_tickets
+      SET status = 'available', held_by = NULL, held_until = NULL
+      WHERE status = 'held'
+        AND held_until IS NOT NULL
+        AND held_until <= CURRENT_TIMESTAMP;
+    `);
+  } catch (error) {
+    console.error('Lỗi khi đồng bộ trạng thái chương trình:', error);
+  } finally {
+    isSyncing = false;
+  }
+}
+
 app.get('/api/programs', asyncRoute(async (_request, response) => {
+  await syncProgramStatuses();
   const result = await pool.query(
     `SELECT p.*,
             COALESCE(SUM(CASE WHEN t.status IN ('held', 'sold') THEN 1 ELSE 0 END), 0)::int AS reserved_tickets,
@@ -139,6 +180,7 @@ app.get('/api/programs', asyncRoute(async (_request, response) => {
 }));
 
 app.get('/api/programs/:programId', asyncRoute(async (request, response) => {
+  await syncProgramStatuses();
   const result = await pool.query(
     `SELECT p.*, COALESCE(jsonb_agg(to_jsonb(pr) - 'program_id') FILTER (WHERE pr.prize_id IS NOT NULL), '[]') AS prizes
      FROM lottery_programs p
@@ -181,6 +223,57 @@ app.post('/api/programs/:programId/hold', requireAuth, asyncRoute(async (request
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Khóa dòng chương trình bằng FOR UPDATE để kiểm tra trạng thái nguyên tử, chống race condition
+    const programResult = await client.query(
+      `SELECT program_id, status, start_time, end_time FROM lottery_programs
+       WHERE program_id = $1 FOR UPDATE`,
+      [request.params.programId],
+    );
+    const prog = programResult.rows[0];
+    if (!prog) {
+      await client.query('ROLLBACK');
+      response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+      return;
+    }
+
+    const now = new Date();
+    // Tự động kích hoạt sang active nếu đã đến giờ mở bán
+    if (['upcoming', 'published'].includes(prog.status) && prog.start_time && new Date(prog.start_time) <= now) {
+      if (!prog.end_time || new Date(prog.end_time) > now) {
+        prog.status = 'active';
+        await client.query(
+          `UPDATE lottery_programs SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE program_id = $1`,
+          [prog.program_id],
+        );
+      }
+    }
+    // Chuyển sang ended nếu đã quá thời gian kết thúc
+    if (prog.status === 'active' && prog.end_time && new Date(prog.end_time) <= now) {
+      prog.status = 'ended';
+      await client.query(
+        `UPDATE lottery_programs SET status = 'ended', updated_at = CURRENT_TIMESTAMP WHERE program_id = $1`,
+        [prog.program_id],
+      );
+    }
+
+    if (prog.status !== 'active') {
+      await client.query('ROLLBACK');
+      response.status(400).json({
+        error: prog.status === 'ended' || prog.status === 'closed'
+          ? 'Chương trình đã kết thúc hoặc đã khoá bán.'
+          : 'Chương trình chưa đến giờ mở bán.',
+      });
+      return;
+    }
+
+    // Tự động giải phóng các số đang giữ quá hạn trước khi kiểm tra số khả dụng
+    await client.query(
+      `UPDATE lottery_tickets SET status = 'available', held_by = NULL, held_until = NULL
+       WHERE program_id = $1 AND ticket_number = ANY($2::varchar[]) AND status = 'held' AND held_until <= CURRENT_TIMESTAMP`,
+      [request.params.programId, ticketNumbers],
+    );
+
     const tickets = await client.query(
       `SELECT ticket_id, ticket_number, price FROM lottery_tickets
        WHERE program_id = $1 AND ticket_number = ANY($2::varchar[]) AND status = 'available'
@@ -236,8 +329,19 @@ app.post('/api/orders', requireAuth, asyncRoute(async (request, response) => {
         [order.rows[0].order_id, ticket.ticket_id, ticket.price],
       );
     }
+    const formattedTickets = tickets.rows.map((t: { ticket_id: number; ticket_number: string }) => ({
+      ticketId: t.ticket_id,
+      ticketNumber: t.ticket_number,
+      programId: input.programId,
+    }));
     await client.query('COMMIT');
-    response.status(201).json({ order: order.rows[0], tickets: tickets.rows });
+    response.status(201).json({
+      order: {
+        ...order.rows[0],
+        tickets: formattedTickets,
+      },
+      tickets: tickets.rows,
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -246,39 +350,255 @@ app.post('/api/orders', requireAuth, asyncRoute(async (request, response) => {
   }
 }));
 
+app.get('/api/orders/:orderId/payment-qr', requireAuth, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT o.*,
+            COUNT(oi.ticket_id)::int AS ticket_count,
+            pr.program_id, pr.program_name, pr.program_code
+     FROM orders o
+     JOIN order_items oi ON oi.order_id = o.order_id
+     JOIN lottery_tickets t ON t.ticket_id = oi.ticket_id
+     JOIN lottery_programs pr ON pr.program_id = t.program_id
+     WHERE o.order_id = $1 AND (o.user_id = $2 OR $3 = 'ADMIN')
+     GROUP BY o.order_id, pr.program_id`,
+    [request.params.orderId, request.user?.userId, request.user?.role],
+  );
+  const order = result.rows[0];
+  if (!order) {
+    response.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    return;
+  }
+
+  const bankCode = 'MB';
+  const bankName = 'MBBank - Ngân hàng TMCP Quân Đội';
+  const accountNumber = '999988886666';
+  const accountName = 'LUCKYDRAW LOTTERY PORTAL';
+  const amount = Number(order.total_amount);
+  const transferContent = `LUCKYDRAW ${order.order_code}`;
+  const qrCodeUrl = `https://img.vietqr.io/image/${bankCode}-${accountNumber}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
+
+  response.json({
+    orderId: order.order_id,
+    orderCode: order.order_code,
+    orderStatus: order.status,
+    amount,
+    bankCode,
+    bankName,
+    accountNumber,
+    accountName,
+    transferContent,
+    qrCodeUrl,
+    expiresAt: order.expires_at,
+    isSimulated: true,
+  });
+}));
+
 app.post('/api/orders/:orderId/pay', requireAuth, asyncRoute(async (request, response) => {
+  const idempotencyKey = (
+    request.headers['idempotency-key'] ||
+    request.headers['x-idempotency-key'] ||
+    request.body?.idempotencyKey ||
+    ''
+  ).toString().trim();
+
+  const paymentMethod = request.body?.paymentMethod || 'qr_simulation';
   const client = await pool.connect();
+
   try {
+    // 1. Kiểm tra Idempotency Record đã lưu trước đó nếu có idempotencyKey
+    if (idempotencyKey) {
+      const existingRecord = await client.query(
+        `SELECT response_code, response_body FROM idempotency_records
+         WHERE idempotency_key = $1 AND user_id = $2`,
+        [idempotencyKey, request.user?.userId],
+      );
+      if (existingRecord.rows[0]) {
+        response.setHeader('X-Idempotent-Replayed', 'true');
+        response.status(existingRecord.rows[0].response_code).json(existingRecord.rows[0].response_body);
+        return;
+      }
+    }
+
     await client.query('BEGIN');
-    const order = await client.query(
-      `SELECT * FROM orders WHERE order_id = $1 AND user_id = $2 AND status = 'pending' FOR UPDATE`,
+
+    // 2. Lock dòng orders bằng FOR UPDATE để chống race condition và xử lý double payment
+    const orderResult = await client.query(
+      `SELECT * FROM orders WHERE order_id = $1 AND user_id = $2 FOR UPDATE`,
       [request.params.orderId, request.user?.userId],
     );
-    if (!order.rows[0]) {
+    const order = orderResult.rows[0];
+    if (!order) {
       await client.query('ROLLBACK');
-      response.status(404).json({ error: 'Đơn hàng không tồn tại hoặc không thể thanh toán.' });
+      response.status(404).json({ error: 'Đơn hàng không tồn tại hoặc không thuộc quyền sở hữu của bạn.' });
       return;
     }
+
+    // 3. Nếu đơn hàng đã được thanh toán trước đó (idempotency an toàn trên cấp độ đơn hàng)
+    if (order.status === 'confirmed') {
+      const existingPayment = await client.query(
+        `SELECT * FROM payments WHERE order_id = $1 AND status = 'success' ORDER BY payment_id DESC LIMIT 1`,
+        [order.order_id],
+      );
+      await client.query('COMMIT');
+      const responsePayload = {
+        order: { ...order, status: 'confirmed' },
+        payment: existingPayment.rows[0] ?? null,
+        replayed: true,
+        message: 'Đơn hàng đã được thanh toán thành công trước đó (Idempotent replay).',
+      };
+      if (idempotencyKey) {
+        await pool.query(
+          `INSERT INTO idempotency_records (idempotency_key, user_id, endpoint, order_id, response_code, response_body)
+           VALUES ($1, $2, '/orders/pay', $3, 200, $4)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [idempotencyKey, request.user?.userId, order.order_id, JSON.stringify(responsePayload)],
+        );
+      }
+      response.setHeader('X-Idempotent-Replayed', 'true');
+      response.json(responsePayload);
+      return;
+    }
+
+    if (order.status !== 'pending') {
+      await client.query('ROLLBACK');
+      response.status(400).json({ error: `Đơn hàng đang ở trạng thái "${order.status}", không thể thanh toán.` });
+      return;
+    }
+
+    // Kiểm tra thời hạn giữ vé của đơn hàng
+    if (order.expires_at && new Date(order.expires_at).getTime() <= Date.now()) {
+      await client.query(
+        `UPDATE orders SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1`,
+        [order.order_id],
+      );
+      await client.query(
+        `UPDATE lottery_tickets t SET status = 'available', held_by = NULL, held_until = NULL
+         FROM order_items oi WHERE oi.order_id = $1 AND oi.ticket_id = t.ticket_id AND t.status = 'held'`,
+        [order.order_id],
+      );
+      await client.query('COMMIT');
+      response.status(400).json({ error: 'Đơn hàng đã hết thời gian giữ vé. Vé đã được trả lại hệ thống.' });
+      return;
+    }
+
+    // 4. Cập nhật trạng thái vé sang 'sold'
     await client.query(
       `UPDATE lottery_tickets t SET status = 'sold', held_by = NULL, held_until = NULL
        FROM order_items oi WHERE oi.order_id = $1 AND oi.ticket_id = t.ticket_id`,
-      [request.params.orderId],
+      [order.order_id],
     );
-    const payment = await client.query(
-      `INSERT INTO payments (order_id, payment_code, amount, status, transaction_reference)
-       VALUES ($1, 'PAY-' || UPPER(SUBSTRING(MD5(RANDOM()::text), 1, 12)), $2, 'success', 'SIM-' || MD5(RANDOM()::text))
+
+    // 5. Tạo mã giao dịch và ghi nhận thanh toán
+    const paymentCode = 'PAY-' + Date.now().toString(36).toUpperCase() + '-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    const transactionRef = 'TXN-QR-' + Date.now() + '-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    const qrUrl = `https://img.vietqr.io/image/MB-999988886666-compact2.png?amount=${Number(order.total_amount)}&addInfo=${encodeURIComponent('LUCKYDRAW ' + order.order_code)}&accountName=${encodeURIComponent('LUCKYDRAW LOTTERY PORTAL')}`;
+
+    const paymentResult = await client.query(
+      `INSERT INTO payments (
+         order_id, payment_code, payment_method, amount, status,
+         is_simulated, transaction_reference, paid_at, idempotency_key, qr_code_url, metadata
+       )
+       VALUES ($1, $2, $3, $4, 'success', TRUE, $5, CURRENT_TIMESTAMP, $6, $7, $8)
        RETURNING *`,
-      [request.params.orderId, order.rows[0].total_amount],
+      [
+        order.order_id,
+        paymentCode,
+        paymentMethod,
+        order.total_amount,
+        transactionRef,
+        idempotencyKey || null,
+        qrUrl,
+        JSON.stringify({
+          bank: 'MBBank',
+          accountNumber: '999988886666',
+          transferContent: `LUCKYDRAW ${order.order_code}`,
+          paidVia: 'QR_SIMULATION',
+          clientIp: request.ip,
+          userAgent: request.headers['user-agent'],
+        }),
+      ],
     );
-    await client.query(`UPDATE orders SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1`, [request.params.orderId]);
+    const payment = paymentResult.rows[0];
+
+    // Cập nhật trạng thái đơn hàng sang 'confirmed'
+    const updatedOrderResult = await client.query(
+      `UPDATE orders SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 RETURNING *`,
+      [order.order_id],
+    );
+    const updatedOrder = updatedOrderResult.rows[0];
+
+    // 6. Ghi log giao dịch chi tiết vào audit_logs
+    const rawIp = request.ip || request.socket.remoteAddress || '127.0.0.1';
+    const ipAddress = /^([0-9]{1,3}\.){3}[0-9]{1,3}$/.test(rawIp) ? rawIp : '127.0.0.1';
+
+    await client.query(
+      `INSERT INTO audit_logs (
+         actor_user_id, action, entity_type, entity_id, old_data, new_data, ip_address, user_agent
+       )
+       VALUES ($1, $2, 'PAYMENT', $3, $4, $5, $6::inet, $7)`,
+      [
+        request.user?.userId,
+        'PAYMENT_QR_SIMULATION_SUCCESS',
+        payment.payment_code,
+        JSON.stringify({ order_id: order.order_id, status: order.status }),
+        JSON.stringify({
+          order_id: order.order_id,
+          order_code: order.order_code,
+          payment_id: payment.payment_id,
+          payment_code: payment.payment_code,
+          amount: Number(payment.amount),
+          payment_method: payment.payment_method,
+          transaction_reference: payment.transaction_reference,
+          idempotency_key: idempotencyKey || null,
+          is_simulated: true,
+          paid_at: payment.paid_at,
+        }),
+        ipAddress,
+        request.headers['user-agent'] ?? 'unknown',
+      ],
+    );
+
+    // 7. Lưu Idempotency Record
+    const responsePayload = {
+      order: updatedOrder,
+      payment,
+      replayed: false,
+      message: 'Thanh toán QR mô phỏng thành công.',
+    };
+
+    if (idempotencyKey) {
+      await client.query(
+        `INSERT INTO idempotency_records (idempotency_key, user_id, endpoint, order_id, response_code, response_body)
+         VALUES ($1, $2, '/orders/pay', $3, 200, $4)
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [idempotencyKey, request.user?.userId, order.order_id, JSON.stringify(responsePayload)],
+      );
+    }
+
     await client.query('COMMIT');
-    response.json({ order: { ...order.rows[0], status: 'confirmed' }, payment: payment.rows[0] });
+    response.status(200).json(responsePayload);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
+}));
+
+app.get('/api/me/payments', requireAuth, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT p.*, o.order_code, pr.program_name
+     FROM payments p
+     JOIN orders o ON o.order_id = p.order_id
+     LEFT JOIN order_items oi ON oi.order_id = o.order_id
+     LEFT JOIN lottery_tickets t ON t.ticket_id = oi.ticket_id
+     LEFT JOIN lottery_programs pr ON pr.program_id = t.program_id
+     WHERE o.user_id = $1
+     GROUP BY p.payment_id, o.order_id, pr.program_name
+     ORDER BY p.created_at DESC LIMIT 50`,
+    [request.user?.userId],
+  );
+  response.json(result.rows);
 }));
 
 app.post('/api/orders/:orderId/cancel', requireAuth, asyncRoute(async (request, response) => {
@@ -339,6 +659,7 @@ app.get('/api/results', asyncRoute(async (_request, response) => {
 }));
 
 app.get('/api/organizer/programs', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+  await syncProgramStatuses();
   const result = await pool.query(
     `SELECT p.*, COUNT(t.ticket_id) FILTER (WHERE t.status IN ('held', 'sold'))::int AS reserved_tickets
      FROM lottery_programs p
@@ -539,7 +860,8 @@ app.get('/api/admin/tickets', requireAuth, requireAdmin, asyncRoute(async (_requ
 
 app.get('/api/admin/audit', requireAuth, requireAdmin, asyncRoute(async (_request, response) => {
   const result = await pool.query(`SELECT a.audit_id, a.created_at, COALESCE(u.username, 'system') AS username,
-    a.action, a.entity_type FROM audit_logs a LEFT JOIN users u ON u.user_id = a.actor_user_id
+    a.action, a.entity_type, a.entity_id, a.old_data, a.new_data, a.ip_address::text AS ip_address, a.user_agent
+    FROM audit_logs a LEFT JOIN users u ON u.user_id = a.actor_user_id
     ORDER BY a.created_at DESC LIMIT 100`);
   response.json(result.rows);
 }));
@@ -603,7 +925,11 @@ app.patch('/api/admin/programs/:programId/status', requireAuth, requireAdmin, as
   }
   const result = await pool.query(
     `UPDATE lottery_programs
-     SET status = $1,
+     SET status = CASE
+           WHEN $1 = 'upcoming' AND start_time IS NOT NULL AND start_time <= CURRENT_TIMESTAMP AND (end_time IS NULL OR end_time > CURRENT_TIMESTAMP) THEN 'active'
+           WHEN $1 = 'upcoming' AND end_time IS NOT NULL AND end_time <= CURRENT_TIMESTAMP THEN 'ended'
+           ELSE $1
+         END,
          rejection_reason = CASE WHEN $1 = 'rejected' THEN $3 ELSE NULL END,
          reviewed_by = $4,
          reviewed_at = CURRENT_TIMESTAMP,

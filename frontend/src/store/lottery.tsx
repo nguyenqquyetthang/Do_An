@@ -61,7 +61,7 @@ interface LotteryContextValue extends AppState {
   cellStateOf: (programId: string, ticketNumber: number) => TicketCellState;
   cellOwnerOf: (programId: string, ticketNumber: number) => string | undefined;
   createOrder: (programId: string, numbers: number[]) => Promise<{ ok: true; order: Order } | { ok: false; taken: number[]; error?: string }>;
-  payOrder: (orderId: string, method: string) => Promise<{ ok: boolean; error?: string }>;
+  payOrder: (orderId: string, method?: string, idempotencyKey?: string) => Promise<{ ok: boolean; error?: string; payment?: any; replayed?: boolean }>;
   cancelOrder: (orderId: string) => Promise<void>;
   orderById: (orderId: string) => Order | undefined;
   ordersOf: (userId: string) => Order[];
@@ -100,18 +100,29 @@ function normalizeProgram(program: Program): Program {
   const startAt = String(raw.start_time ?? new Date().toISOString());
   const endAt = String(raw.end_time ?? startAt);
   const now = Date.now();
-  const status = storedStatus === "upcoming" && new Date(startAt).getTime() <= now
-    ? "active"
-    : storedStatus === "active" && new Date(endAt).getTime() <= now
-      ? "ended"
-      : storedStatus;
+
+  let computedStatus = storedStatus;
+  if (["upcoming", "published"].includes(storedStatus)) {
+    if (new Date(startAt).getTime() <= now && (!raw.end_time || new Date(endAt).getTime() > now)) {
+      computedStatus = "active";
+    } else if (raw.end_time && new Date(endAt).getTime() <= now) {
+      computedStatus = "ended";
+    } else {
+      computedStatus = "upcoming";
+    }
+  } else if (storedStatus === "active") {
+    if (raw.end_time && new Date(endAt).getTime() <= now) {
+      computedStatus = "ended";
+    }
+  }
+
   const mappedStatus: Program["status"] =
-    status === "published" ? "upcoming"
-      : status === "drawing" ? "active"
-      : status === "completed" || status === "closed" || status === "cancelled" ? "ended"
-      : status === "draft" || status === "pending_review" || status === "rejected"
-        ? status
-        : status === "active" || status === "upcoming" || status === "ended" ? status : "draft";
+    computedStatus === "active" || computedStatus === "drawing" ? "active"
+      : computedStatus === "upcoming" || computedStatus === "published" ? "upcoming"
+      : computedStatus === "ended" || computedStatus === "completed" || computedStatus === "closed" || computedStatus === "cancelled" ? "ended"
+      : computedStatus === "draft" || computedStatus === "pending_review" || computedStatus === "rejected"
+        ? computedStatus
+        : "draft";
 
   return {
     id: String(raw.program_id),
@@ -147,19 +158,41 @@ function normalizeProgram(program: Program): Program {
   };
 }
 
-function normalizeOrder(order: ApiOrder, currentUser: DemoUser): Order {
-  const firstTicket = order.tickets[0];
-  const numbers = order.tickets
-    .map((ticket) => Number.parseInt(ticket.ticketNumber, 10))
-    .filter((number) => Number.isFinite(number));
-  const total = Number(order.total_amount);
+function normalizeOrder(order: any, currentUser: DemoUser): Order {
+  const rawTickets = Array.isArray(order?.tickets) ? order.tickets : [];
+  const numbers = rawTickets
+    .map((ticket: any) => {
+      const numStr = ticket?.ticketNumber ?? ticket?.ticket_number ?? ticket;
+      return typeof numStr === "number" ? numStr : Number.parseInt(String(numStr), 10);
+    })
+    .filter((number: number) => Number.isFinite(number));
+
+  const firstTicket = rawTickets[0];
+  const programId = String(
+    firstTicket?.programId ??
+    firstTicket?.program_id ??
+    order?.programId ??
+    order?.program_id ??
+    ""
+  );
+
+  const total = Number(order?.total_amount ?? order?.total ?? 0);
   const status: Order["status"] =
-    order.status === "confirmed" ? "paid" : order.status === "pending" ? "held" : "expired";
-  const createdAt = order.created_at;
-  const holdUntil = order.expires_at ? new Date(order.expires_at).getTime() : Date.now() + HOLD_DURATION_MS;
+    order?.status === "confirmed" || order?.status === "paid"
+      ? "paid"
+      : order?.status === "pending" || order?.status === "held"
+        ? "held"
+        : "expired";
+  const createdAt = order?.created_at ?? order?.createdAt ?? new Date().toISOString();
+  const holdUntil = order?.expires_at
+    ? new Date(order.expires_at).getTime()
+    : order?.holdUntil
+      ? Number(order.holdUntil)
+      : Date.now() + HOLD_DURATION_MS;
+
   return {
-    id: String(order.order_id),
-    programId: String(firstTicket?.programId ?? ""),
+    id: String(order?.order_id ?? order?.id ?? ""),
+    programId,
     userId: currentUser.id,
     userName: currentUser.name,
     numbers,
@@ -167,7 +200,7 @@ function normalizeOrder(order: ApiOrder, currentUser: DemoUser): Order {
     total,
     status,
     createdAt,
-    paidAt: status === "paid" ? order.updated_at ?? createdAt : undefined,
+    paidAt: status === "paid" ? order?.updated_at ?? createdAt : undefined,
     holdUntil,
   };
 }
@@ -227,31 +260,50 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    (currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
-      ? api.getAdminPrograms()
-      : api.getPrograms())
-      .then(async (programs) => {
-        if (!active) return;
+    let fetchSeq = 0;
+
+    const loadData = async () => {
+      const currentSeq = ++fetchSeq;
+      try {
+        const programs = await (
+          currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
+            ? api.getAdminPrograms()
+            : api.getPrograms()
+        );
+        // Tránh race condition: nếu có request mới hơn hoặc component đã unmount thì bỏ qua
+        if (!active || currentSeq !== fetchSeq) return;
+
         const normalizedPrograms = programs.map(normalizeProgram);
         const ticketEntries = await Promise.all(
           normalizedPrograms.map(async (program) => [program.id, await api.tickets(program.id)] as const),
         );
+        if (!active || currentSeq !== fetchSeq) return;
+
         setState((previous) => ({
           ...previous,
           programs: normalizedPrograms,
-          ledgers: Object.fromEntries(ticketEntries.map(([id, tickets]) => [id, ledgerFromTickets(tickets, currentUser?.id ?? "")])),
+          ledgers: Object.fromEntries(
+            ticketEntries.map(([id, tickets]) => [id, ledgerFromTickets(tickets, currentUser?.id ?? "")]),
+          ),
         }));
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         console.error("Không thể tải dữ liệu từ backend.", error);
-      });
+      }
+    };
+
+    void loadData();
+
+    // Định kỳ 10 giây đồng bộ lại dữ liệu với server (đảm bảo race condition được triệt tiêu bằng fetchSeq)
+    const interval = window.setInterval(loadData, 10000);
 
     return () => {
       active = false;
+      fetchSeq++;
+      window.clearInterval(interval);
     };
   }, [currentUser]);
 
-  /** Hết hạn giữ số: trả số về trạng thái còn trống và đánh dấu đơn hết hạn. */
+  /** Định kỳ 1 giây: tự động chuyển trạng thái chương trình khi đến giờ mở bán/kết thúc và giải phóng vé giữ quá hạn */
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = Date.now();
@@ -262,7 +314,15 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
         const staleLedgerHolds = Object.values(prev.ledgers).some((ledger) =>
           [...ledger.held.values()].some((hold) => hold.until <= now),
         );
-        if (expiredOrders.length === 0 && !staleLedgerHolds) return prev;
+
+        // Kiểm tra xem có chương trình nào đến giờ mở bán (upcoming -> active) hoặc kết thúc (active -> ended) không
+        const hasProgramStatusChange = prev.programs.some((program) => {
+          if (program.status === "upcoming" && new Date(program.startAt).getTime() <= now) return true;
+          if (program.status === "active" && new Date(program.endAt).getTime() <= now) return true;
+          return false;
+        });
+
+        if (expiredOrders.length === 0 && !staleLedgerHolds && !hasProgramStatusChange) return prev;
 
         const ledgers: AppState["ledgers"] = {};
         for (const [programId, ledger] of Object.entries(prev.ledgers)) {
@@ -272,15 +332,27 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
           ledgers[programId] = { ...ledger, held };
         }
 
+        const programs = prev.programs.map((program) => {
+          if (program.status === "upcoming" && new Date(program.startAt).getTime() <= now) {
+            const hasEnded = new Date(program.endAt).getTime() <= now;
+            return { ...program, status: (hasEnded ? "ended" : "active") as Program["status"] };
+          }
+          if (program.status === "active" && new Date(program.endAt).getTime() <= now) {
+            return { ...program, status: "ended" as Program["status"] };
+          }
+          return program;
+        });
+
         return {
           ...prev,
+          programs,
           ledgers,
           orders: prev.orders.map((order) =>
             order.status === "held" && order.holdUntil <= now ? { ...order, status: "expired" } : order,
           ),
         };
       });
-    }, 3000);
+    }, 1000);
 
     return () => window.clearInterval(timer);
   }, []);
@@ -364,9 +436,27 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
     const program = state.programs.find((item) => item.id === programId);
     if (!user || !program) return { ok: false, taken: [], error: "Bạn cần đăng nhập để giữ vé." };
     try {
-      await api.holdTickets(programId, numbers.map((number) => String(number).padStart(program.numberLength, "0")));
-      const result = await api.createOrder(Number(programId), numbers.map((number) => String(number).padStart(program.numberLength, "0")));
-      const order = normalizeOrder(result.order, user);
+      const formattedNumbers = numbers.map((number) => String(number).padStart(program.numberLength, "0"));
+      await api.holdTickets(programId, formattedNumbers);
+      const result = await api.createOrder(Number(programId), formattedNumbers);
+      const orderData = {
+        ...result.order,
+        programId,
+        tickets: Array.isArray(result.order?.tickets) && result.order.tickets.length > 0
+          ? result.order.tickets
+          : Array.isArray(result.tickets) && result.tickets.length > 0
+            ? result.tickets.map((t: any) => ({
+                ticketId: t.ticket_id ?? t.ticketId,
+                ticketNumber: t.ticket_number ?? t.ticketNumber,
+                programId: Number(programId),
+              }))
+            : numbers.map((num) => ({
+                ticketId: num,
+                ticketNumber: String(num).padStart(program.numberLength, "0"),
+                programId: Number(programId),
+              })),
+      };
+      const order = normalizeOrder(orderData, user);
       setState((previous) => ({
         ...previous,
         ledgers: {
@@ -392,11 +482,12 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
     }
   }, [state.programs, state.users, currentUserId]);
 
-  const payOrder = useCallback<LotteryContextValue["payOrder"]>(async (orderId) => {
+  const payOrder = useCallback<LotteryContextValue["payOrder"]>(async (orderId, method = "qr_simulation", idempotencyKey) => {
     try {
       const order = state.orders.find((item) => item.id === orderId);
       if (!order) return { ok: false, error: "Không tìm thấy đơn hàng." };
-      const result = await api.payOrder(orderId);
+      const key = idempotencyKey || `idem_${orderId}_${order.createdAt || Date.now()}`;
+      const result = await api.payOrder(orderId, { paymentMethod: method, idempotencyKey: key });
       setState((previous) => ({
         ...previous,
         ledgers: {
@@ -410,13 +501,13 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
             ]),
           } : (previous.ledgers[order?.programId ?? ""] ?? emptyLedger()),
         },
-        orders: previous.orders.map((order) => order.id === orderId ? {
-          ...order,
+        orders: previous.orders.map((item) => item.id === orderId ? {
+          ...item,
           status: "paid",
-          paidAt: result.order.updated_at ?? new Date().toISOString(),
-        } : order),
+          paidAt: result.order.updated_at ?? result.payment?.paid_at ?? new Date().toISOString(),
+        } : item),
       }));
-      return { ok: true };
+      return { ok: true, payment: result.payment, replayed: result.replayed };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Thanh toán không thành công." };
     }
@@ -449,6 +540,13 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
 
   const createProgram = useCallback<LotteryContextValue["createProgram"]>(
     async (input) => {
+      const isAdmin = currentUser?.role === "ADMIN";
+      const initialStatus = !input.publish
+        ? "draft"
+        : isAdmin
+          ? (new Date(input.startAt).getTime() <= Date.now() ? "active" : "upcoming")
+          : "pending_review";
+
       const created = await api.createProgram({
         programCode: `P-${Date.now()}`,
         programName: input.name,
@@ -459,7 +557,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
         startTime: input.startAt,
         endTime: input.endAt,
         drawTime: input.endAt,
-        status: input.publish ? "pending_review" : "draft",
+        status: initialStatus,
         prizeName: input.prizeName,
         prizeValue: input.prizeTerms.reduce((sum, term) => sum + term.value * term.quantity, 0),
       });
@@ -470,7 +568,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
       }));
       return program;
     },
-    [],
+    [currentUser?.role],
   );
 
   const setProgramStatus = useCallback<LotteryContextValue["setProgramStatus"]>(async (programId, status, rejectionReason) => {

@@ -142,7 +142,7 @@ const AdminProgramCreatePage = () => {
       mediaName: media?.name,
       mediaKind: media?.kind,
       mediaSize: media?.size,
-      publish: false,
+      publish,
     });
     toast.success(
       publish ? `Đã công bố chương trình ${program.code}.` : `Đã lưu nháp chương trình ${program.code}.`,
