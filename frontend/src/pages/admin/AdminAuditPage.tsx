@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileClock, Link2, Search, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ import { shortHash } from "@/lib/draw";
 import { verifyAuditChain } from "@/lib/audit";
 import { formatDateTime, shortTime } from "@/lib/format";
 import { useLottery } from "@/store/lottery";
+import { api } from "@/lib/api";
 
 const actionTone = (action: string) =>
   action.includes("PUBLISH")
@@ -39,13 +40,56 @@ const actionTone = (action: string) =>
             : "outline";
 
 const AdminAuditPage = () => {
-  const { audit } = useLottery();
+  const { audit: localAudit } = useLottery();
+  const [dbLogs, setDbLogs] = useState<Array<any>>([]);
   const [action, setAction] = useState("all");
   const [keyword, setKeyword] = useState("");
 
-  const actions = [...new Set(audit.map((entry) => entry.action))];
-  const rows = [...audit]
-    .reverse()
+  useEffect(() => {
+    let active = true;
+    api.adminAudit()
+      .then((records) => {
+        if (!active) return;
+        setDbLogs(records);
+      })
+      .catch((err) => {
+        console.error("Không thể tải audit log từ database:", err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Kết hợp audit log từ database và local hash-chain
+  const formattedDbLogs = dbLogs.map((log) => {
+    const newData = typeof log.new_data === "object" && log.new_data !== null ? log.new_data : {};
+    let detail = "";
+    if (log.action.includes("PAYMENT")) {
+      detail = `Thanh toán: ${newData.payment_code || log.entity_id || ""} - Số tiền: ${newData.amount ? Number(newData.amount).toLocaleString("vi-VN") + "đ" : ""} - PT: ${newData.payment_method || "QR"}`;
+      if (newData.idempotency_key) {
+        detail += ` (Idempotency: ${newData.idempotency_key})`;
+      }
+    } else {
+      detail = JSON.stringify(newData);
+    }
+
+    return {
+      id: `db_${log.audit_id}`,
+      at: log.created_at,
+      actor: log.username || "Hệ thống",
+      actorRole: "USER / ADMIN",
+      action: log.action,
+      entity: `${log.entity_type} ${log.entity_id ?? ""}`.trim(),
+      detail,
+      hash: "db_verified_" + log.audit_id,
+      ip: log.ip_address,
+    };
+  });
+
+  const combinedAudit = formattedDbLogs.length > 0 ? formattedDbLogs : localAudit;
+  const actions = [...new Set(combinedAudit.map((entry) => entry.action))];
+  const rows = [...combinedAudit]
     .filter((entry) => action === "all" || entry.action === action)
     .filter((entry) => {
       if (!keyword.trim()) return true;
@@ -57,7 +101,7 @@ const AdminAuditPage = () => {
       );
     });
 
-  const intact = verifyAuditChain(audit);
+  const intact = verifyAuditChain(localAudit);
 
   return (
     <div className="space-y-6">
@@ -68,7 +112,7 @@ const AdminAuditPage = () => {
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Tổng bản ghi" value={audit.length} icon={FileClock} />
+        <StatCard label="Tổng bản ghi" value={combinedAudit.length} icon={FileClock} />
         <StatCard label="Loại hành động" value={actions.length} icon={Search} />
         <StatCard
           label="Chuỗi toàn vẹn"
