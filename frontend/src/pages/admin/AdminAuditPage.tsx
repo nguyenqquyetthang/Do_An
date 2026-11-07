@@ -112,7 +112,7 @@ const AdminAuditPage = () => {
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Tổng bản ghi" value={audit.length} icon={FileClock} />
+        <StatCard label="Tổng bản ghi" value={combinedAudit.length} icon={FileClock} />
         <StatCard label="Loại hành động" value={actions.length} icon={Search} />
         <StatCard
           label="Chuỗi toàn vẹn"
