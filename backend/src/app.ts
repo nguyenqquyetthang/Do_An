@@ -13,6 +13,7 @@ import {
   asyncRoute,
   requireAdmin,
   requireAuth,
+  requireDrawOperator,
   requireProgramManager,
 } from './middleware/auth.js';
 import type { AuthenticatedRequest } from './types/http.js';
@@ -68,6 +69,7 @@ const organizerSchema = z.object({
     /^[A-Za-z0-9_.-]+$/,
     'Tên đăng nhập chỉ được chứa chữ không dấu, số, dấu gạch dưới (_), dấu chấm (.) hoặc dấu gạch ngang (-).',
   ),
+  role: z.enum(['ORGANIZER', 'DRAW_OPERATOR']).default('ORGANIZER'),
 });
 
 const programSchema = z.object({
@@ -82,7 +84,7 @@ const programSchema = z.object({
   drawTime: z.string().datetime().optional(),
   status: z.enum([
     'draft', 'pending_review', 'rejected', 'upcoming', 'active', 'ended',
-    'published', 'closed', 'drawing', 'completed', 'cancelled',
+    'published', 'closed', 'drawing', 'completed', 'cancelled', 'suspended',
   ]).optional(),
 });
 
@@ -123,6 +125,8 @@ app.post('/api/organizer/media', requireAuth, requireProgramManager, (request, r
 app.post('/api/auth/register', asyncRoute(authController.register));
 app.post('/api/auth/login', asyncRoute(authController.login));
 app.get('/api/auth/me', requireAuth, asyncRoute(authController.me));
+app.patch('/api/auth/profile', requireAuth, asyncRoute(authController.updateProfile));
+app.post('/api/auth/change-password', requireAuth, asyncRoute(authController.changePassword));
 
 let isSyncing = false;
 export async function syncProgramStatuses() {
@@ -169,7 +173,21 @@ app.get('/api/programs', asyncRoute(async (_request, response) => {
   const result = await pool.query(
     `SELECT p.*,
             COALESCE(SUM(CASE WHEN t.status IN ('held', 'sold') THEN 1 ELSE 0 END), 0)::int AS reserved_tickets,
-            COALESCE((SELECT MAX(pr.estimated_value) FROM prizes pr WHERE pr.program_id = p.program_id), 0)::numeric AS prize_value
+            COALESCE((SELECT MAX(pr.estimated_value) FROM prizes pr WHERE pr.program_id = p.program_id), 0)::numeric AS prize_value,
+            (SELECT d.revealed_seed FROM draws d WHERE d.program_id = p.program_id AND d.status = 'completed' ORDER BY d.completed_at DESC LIMIT 1) AS public_seed,
+            (SELECT d.seed_commitment FROM draws d WHERE d.program_id = p.program_id AND d.status = 'completed' ORDER BY d.completed_at DESC LIMIT 1) AS draw_commitment,
+            (SELECT jsonb_agg(jsonb_build_object(
+              'termId', pr.prize_id, 'termLabel', pr.prize_name,
+              'number', t.ticket_number::int, 'ownerName', u.full_name,
+              'status', w.claim_status
+            ) ORDER BY dr.result_rank)
+             FROM draws d
+             JOIN draw_results dr ON dr.draw_id = d.draw_id
+             JOIN lottery_tickets t ON t.ticket_id = dr.ticket_id
+             JOIN prizes pr ON pr.prize_id = dr.prize_id
+             JOIN winners w ON w.result_id = dr.result_id
+             JOIN users u ON u.user_id = w.user_id
+             WHERE d.program_id = p.program_id AND d.status = 'completed') AS winners
      FROM lottery_programs p
      LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
      WHERE p.status IN ('upcoming', 'active', 'ended', 'published', 'closed', 'completed')
@@ -182,7 +200,21 @@ app.get('/api/programs', asyncRoute(async (_request, response) => {
 app.get('/api/programs/:programId', asyncRoute(async (request, response) => {
   await syncProgramStatuses();
   const result = await pool.query(
-    `SELECT p.*, COALESCE(jsonb_agg(to_jsonb(pr) - 'program_id') FILTER (WHERE pr.prize_id IS NOT NULL), '[]') AS prizes
+    `SELECT p.*, COALESCE(jsonb_agg(to_jsonb(pr) - 'program_id') FILTER (WHERE pr.prize_id IS NOT NULL), '[]') AS prizes,
+            (SELECT d.revealed_seed FROM draws d WHERE d.program_id = p.program_id AND d.status = 'completed' ORDER BY d.completed_at DESC LIMIT 1) AS public_seed,
+            (SELECT d.seed_commitment FROM draws d WHERE d.program_id = p.program_id AND d.status = 'completed' ORDER BY d.completed_at DESC LIMIT 1) AS draw_commitment,
+            (SELECT jsonb_agg(jsonb_build_object(
+              'termId', pr2.prize_id, 'termLabel', pr2.prize_name,
+              'number', t.ticket_number::int, 'ownerName', u.full_name,
+              'status', w.claim_status
+            ) ORDER BY dr.result_rank)
+             FROM draws d
+             JOIN draw_results dr ON dr.draw_id = d.draw_id
+             JOIN lottery_tickets t ON t.ticket_id = dr.ticket_id
+             JOIN prizes pr2 ON pr2.prize_id = dr.prize_id
+             JOIN winners w ON w.result_id = dr.result_id
+             JOIN users u ON u.user_id = w.user_id
+             WHERE d.program_id = p.program_id AND d.status = 'completed') AS winners
      FROM lottery_programs p
      LEFT JOIN prizes pr ON pr.program_id = p.program_id
      WHERE (
@@ -223,6 +255,7 @@ app.post('/api/programs/:programId/hold', requireAuth, asyncRoute(async (request
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+<<<<<<< HEAD
 
     // Khóa dòng chương trình bằng FOR UPDATE để kiểm tra trạng thái nguyên tử, chống race condition
     const programResult = await client.query(
@@ -274,6 +307,14 @@ app.post('/api/programs/:programId/hold', requireAuth, asyncRoute(async (request
       [request.params.programId, ticketNumbers],
     );
 
+=======
+    await client.query(
+      `UPDATE lottery_tickets
+       SET status = 'available', held_by = NULL, held_until = NULL
+       WHERE program_id = $1 AND status = 'held' AND held_until <= CURRENT_TIMESTAMP`,
+      [request.params.programId],
+    );
+>>>>>>> 0b3d672 (07/11/2026)
     const tickets = await client.query(
       `SELECT ticket_id, ticket_number, price FROM lottery_tickets
        WHERE program_id = $1 AND ticket_number = ANY($2::varchar[]) AND status = 'available'
@@ -420,10 +461,18 @@ app.post('/api/orders/:orderId/pay', requireAuth, asyncRoute(async (request, res
     }
 
     await client.query('BEGIN');
+<<<<<<< HEAD
 
     // 2. Lock dòng orders bằng FOR UPDATE để chống race condition và xử lý double payment
     const orderResult = await client.query(
       `SELECT * FROM orders WHERE order_id = $1 AND user_id = $2 FOR UPDATE`,
+=======
+    const order = await client.query(
+      `SELECT * FROM orders
+       WHERE order_id = $1 AND user_id = $2 AND status = 'pending'
+         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+       FOR UPDATE`,
+>>>>>>> 0b3d672 (07/11/2026)
       [request.params.orderId, request.user?.userId],
     );
     const order = orderResult.rows[0];
@@ -645,6 +694,25 @@ app.get('/api/me/orders', requireAuth, asyncRoute(async (request, response) => {
   response.json(result.rows);
 }));
 
+app.get('/api/me/prizes', requireAuth, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT w.winner_id, w.claim_status, w.won_at, w.claimed_at,
+            t.ticket_number, o.order_code, p.program_id, p.program_name,
+            pr.prize_name, pr.estimated_value AS prize_value
+     FROM winners w
+     JOIN draw_results dr ON dr.result_id = w.result_id
+     JOIN lottery_tickets t ON t.ticket_id = dr.ticket_id
+     JOIN order_items oi ON oi.ticket_id = t.ticket_id
+     JOIN orders o ON o.order_id = oi.order_id
+     JOIN lottery_programs p ON p.program_id = t.program_id
+     JOIN prizes pr ON pr.prize_id = dr.prize_id
+     WHERE w.user_id = $1
+     ORDER BY w.won_at DESC`,
+    [request.user?.userId],
+  );
+  response.json(result.rows);
+}));
+
 app.get('/api/results', asyncRoute(async (_request, response) => {
   const result = await pool.query(
     `SELECT d.draw_id, d.draw_code, d.completed_at, d.seed_commitment, d.revealed_seed, p.program_id, p.program_name,
@@ -669,6 +737,37 @@ app.get('/api/organizer/programs', requireAuth, requireProgramManager, asyncRout
     [request.user?.role, request.user?.userId],
   );
   response.json(result.rows);
+}));
+
+app.get('/api/organizer/stats', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+  const ownerFilter = request.user?.role === 'ADMIN' ? '' : 'AND p.created_by = $1';
+  const params = request.user?.role === 'ADMIN' ? [] : [request.user?.userId];
+  const programs = await pool.query(
+    `SELECT p.program_id, p.program_code, p.program_name, p.total_tickets,
+            COUNT(t.ticket_id) FILTER (WHERE t.status = 'sold')::int AS sold_tickets,
+            COUNT(t.ticket_id) FILTER (WHERE t.status IN ('available', 'held'))::int AS remaining_tickets,
+            COUNT(DISTINCT o.order_id) FILTER (WHERE o.status = 'confirmed')::int AS successful_orders,
+            COUNT(DISTINCT o.order_id) FILTER (WHERE o.status IN ('cancelled', 'expired', 'refunded'))::int AS failed_orders,
+            COALESCE(SUM(o.total_amount) FILTER (WHERE o.status = 'confirmed'), 0) AS revenue
+     FROM lottery_programs p
+     LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
+     LEFT JOIN order_items oi ON oi.ticket_id = t.ticket_id
+     LEFT JOIN orders o ON o.order_id = oi.order_id
+     WHERE 1 = 1 ${ownerFilter}
+     GROUP BY p.program_id ORDER BY p.created_at DESC`,
+    params,
+  );
+  const daily = await pool.query(
+    `SELECT DATE(o.updated_at) AS day, COUNT(oi.ticket_id)::int AS sold_tickets
+     FROM orders o
+     JOIN order_items oi ON oi.order_id = o.order_id
+     JOIN lottery_tickets t ON t.ticket_id = oi.ticket_id
+     JOIN lottery_programs p ON p.program_id = t.program_id
+     WHERE o.status = 'confirmed' ${ownerFilter}
+     GROUP BY DATE(o.updated_at) ORDER BY day`,
+    params,
+  );
+  response.json({ programs: programs.rows, daily: daily.rows });
 }));
 
 app.post('/api/organizer/programs/:programId/submit', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
@@ -722,6 +821,181 @@ app.get('/api/organizer/orders', requireAuth, requireProgramManager, asyncRoute(
     [request.user?.role, request.user?.userId],
   );
   response.json(result.rows);
+}));
+
+app.get('/api/operator/programs', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT p.*, COUNT(t.ticket_id) FILTER (WHERE t.status = 'sold')::int AS sold_tickets,
+            d.draw_id, d.status AS draw_status
+     FROM program_draw_operators a
+     JOIN lottery_programs p ON p.program_id = a.program_id
+     LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
+     LEFT JOIN draws d ON d.program_id = p.program_id
+     WHERE $1 = 'ADMIN' OR a.operator_user_id = $2
+     GROUP BY p.program_id, d.draw_id
+     ORDER BY p.draw_time NULLS LAST, p.created_at DESC`,
+    [request.user?.role, request.user?.userId],
+  );
+  response.json(result.rows);
+}));
+
+app.get('/api/operator/stats', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT
+       COUNT(DISTINCT a.program_id)::int AS assigned,
+       COUNT(DISTINCT d.program_id) FILTER (WHERE d.status = 'completed')::int AS drawn,
+       COUNT(DISTINCT a.program_id) FILTER (WHERE d.draw_id IS NULL OR d.status <> 'completed')::int AS waiting,
+       COUNT(w.winner_id)::int AS prizes,
+       COUNT(w.winner_id) FILTER (WHERE w.claim_status = 'awarded')::int AS awarded,
+       COUNT(w.winner_id) FILTER (WHERE w.claim_status IN ('pending', 'contacted', 'verified'))::int AS pending,
+       COUNT(w.winner_id) FILTER (WHERE w.claim_status = 'processing')::int AS processing
+     FROM program_draw_operators a
+     LEFT JOIN draws d ON d.program_id = a.program_id
+     LEFT JOIN draw_results dr ON dr.draw_id = d.draw_id AND dr.is_winner = TRUE
+     LEFT JOIN winners w ON w.result_id = dr.result_id
+     WHERE a.operator_user_id = $1`,
+    [request.user?.userId],
+  );
+  response.json(result.rows[0]);
+}));
+
+app.get('/api/operator/winners', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT w.winner_id, w.claim_status, w.won_at, w.contacted_at, w.verified_at,
+            w.awarded_at, w.evidence_url, w.notes,
+            t.ticket_number, o.order_code, p.program_id, p.program_code, p.program_name,
+            pr.prize_name, u.full_name AS winner_name, u.email AS winner_email,
+            u.phone AS winner_phone, responsible.full_name AS responsible_name
+     FROM winners w
+     JOIN draw_results dr ON dr.result_id = w.result_id
+     JOIN draws d ON d.draw_id = dr.draw_id
+     JOIN lottery_tickets t ON t.ticket_id = dr.ticket_id
+     JOIN order_items oi ON oi.ticket_id = t.ticket_id
+     JOIN orders o ON o.order_id = oi.order_id
+     JOIN lottery_programs p ON p.program_id = d.program_id
+     JOIN prizes pr ON pr.prize_id = dr.prize_id
+     JOIN users u ON u.user_id = w.user_id
+     LEFT JOIN users responsible ON responsible.user_id = w.responsible_user_id
+     WHERE EXISTS (
+       SELECT 1 FROM program_draw_operators a
+       WHERE a.program_id = d.program_id AND a.operator_user_id = $1
+     )
+     ORDER BY w.won_at DESC`,
+    [request.user?.userId],
+  );
+  response.json(result.rows);
+}));
+
+app.patch('/api/operator/winners/:winnerId/status', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const input = z.object({
+    status: z.enum(['pending', 'contacted', 'verified', 'processing', 'awarded', 'failed', 'disputed']),
+    evidenceUrl: z.string().trim().max(1000).optional().or(z.literal('')),
+    notes: z.string().trim().max(5000).optional().or(z.literal('')),
+  }).parse(request.body);
+  const result = await pool.query(
+    `UPDATE winners w
+     SET claim_status = $1,
+         responsible_user_id = $2,
+         contacted_at = CASE WHEN $1 = 'contacted' AND contacted_at IS NULL THEN CURRENT_TIMESTAMP ELSE contacted_at END,
+         verified_at = CASE WHEN $1 = 'verified' AND verified_at IS NULL THEN CURRENT_TIMESTAMP ELSE verified_at END,
+         awarded_at = CASE WHEN $1 = 'awarded' THEN CURRENT_TIMESTAMP ELSE awarded_at END,
+         evidence_url = NULLIF($3, ''),
+         notes = NULLIF($4, '')
+     FROM draw_results dr
+     JOIN draws d ON d.draw_id = dr.draw_id
+     WHERE w.winner_id = $5 AND w.result_id = dr.result_id
+       AND EXISTS (
+         SELECT 1 FROM program_draw_operators a
+         WHERE a.program_id = d.program_id AND a.operator_user_id = $2
+       )
+     RETURNING w.*`,
+    [input.status, request.user?.userId, input.evidenceUrl ?? '', input.notes ?? '', request.params.winnerId],
+  );
+  if (!result.rows[0]) {
+    response.status(404).json({ error: 'Không tìm thấy người thắng thuộc chương trình được phân công.' });
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+     VALUES ($1, 'UPDATE_WINNER_CLAIM_STATUS', 'WINNER', $2, $3)`,
+    [request.user?.userId, request.params.winnerId, JSON.stringify({ status: input.status, notes: input.notes ?? null })],
+  );
+  response.json(result.rows[0]);
+}));
+
+app.get('/api/operator/draws/:programId/record', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT d.draw_code, d.algorithm_version, d.seed_commitment, d.revealed_seed,
+            d.started_at, d.completed_at, p.program_code, p.program_name,
+            jsonb_agg(jsonb_build_object(
+              'ticketNumber', t.ticket_number,
+              'prizeName', pr.prize_name,
+              'winnerName', u.full_name,
+              'claimStatus', w.claim_status
+            ) ORDER BY dr.result_rank) AS winners
+     FROM draws d
+     JOIN lottery_programs p ON p.program_id = d.program_id
+     JOIN draw_results dr ON dr.draw_id = d.draw_id
+     JOIN lottery_tickets t ON t.ticket_id = dr.ticket_id
+     JOIN prizes pr ON pr.prize_id = dr.prize_id
+     JOIN winners w ON w.result_id = dr.result_id
+     JOIN users u ON u.user_id = w.user_id
+     WHERE d.program_id = $1 AND d.status = 'completed'
+       AND EXISTS (
+         SELECT 1 FROM program_draw_operators a
+         WHERE a.program_id = d.program_id AND a.operator_user_id = $2
+       )
+     GROUP BY d.draw_id, p.program_id`,
+    [request.params.programId, request.user?.userId],
+  );
+  if (!result.rows[0]) {
+    response.status(404).json({ error: 'Chưa có biên bản quay hoặc chương trình không được phân công.' });
+    return;
+  }
+  response.json(result.rows[0]);
+}));
+
+app.get('/api/operator/draws', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `SELECT d.draw_id, d.draw_code, d.program_id, p.program_code, p.program_name,
+            d.completed_at, d.algorithm_version, COUNT(dr.result_id)::int AS winner_count
+     FROM draws d
+     JOIN lottery_programs p ON p.program_id = d.program_id
+     LEFT JOIN draw_results dr ON dr.draw_id = d.draw_id AND dr.is_winner = TRUE
+     WHERE d.status = 'completed'
+       AND EXISTS (
+         SELECT 1 FROM program_draw_operators a
+         WHERE a.program_id = d.program_id AND a.operator_user_id = $1
+       )
+     GROUP BY d.draw_id, p.program_id
+     ORDER BY d.completed_at DESC`,
+    [request.user?.userId],
+  );
+  response.json(result.rows);
+}));
+
+app.post('/api/admin/programs/:programId/operators', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const input = z.object({ operatorUserId: z.number().int().positive() }).parse(request.body);
+  const result = await pool.query(
+    `INSERT INTO program_draw_operators (program_id, operator_user_id, assigned_by)
+     SELECT $1, u.user_id, $3
+     FROM users u JOIN roles r ON r.role_id = u.role_id
+     WHERE u.user_id = $2 AND u.status = 'active' AND r.role_name = 'DRAW_OPERATOR'
+     ON CONFLICT (program_id, operator_user_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by,
+       assigned_at = CURRENT_TIMESTAMP
+     RETURNING *`,
+    [request.params.programId, input.operatorUserId, request.user?.userId],
+  );
+  if (!result.rows[0]) {
+    response.status(400).json({ error: 'Tài khoản không phải DRAW_OPERATOR hoặc chương trình không tồn tại.' });
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+     VALUES ($1, 'ASSIGN_DRAW_OPERATOR', 'PROGRAM', $2, jsonb_build_object('operatorUserId', $3))`,
+    [request.user?.userId, request.params.programId, input.operatorUserId],
+  );
+  response.status(201).json(result.rows[0]);
 }));
 
 app.get('/api/admin/stats', requireAuth, requireAdmin, asyncRoute(async (_request, response) => {
@@ -794,15 +1068,35 @@ app.patch('/api/admin/users/:userId/status', requireAuth, requireAdmin, asyncRou
   response.json(result.rows[0]);
 }));
 
+app.patch('/api/admin/users/:userId/revoke-role', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const result = await pool.query(
+    `UPDATE users SET role_id = (SELECT role_id FROM roles WHERE role_name = 'USER'),
+            status = 'active', updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = $1 AND role_id <> (SELECT role_id FROM roles WHERE role_name = 'ADMIN')
+     RETURNING user_id, username, email`,
+    [request.params.userId],
+  );
+  if (!result.rows[0]) {
+    response.status(404).json({ error: 'Không thể thu hồi quyền tài khoản này.' });
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+     VALUES ($1, 'REVOKE_ROLE', 'USER', $2, jsonb_build_object('newRole', 'USER'))`,
+    [request.user?.userId, request.params.userId],
+  );
+  response.json(result.rows[0]);
+}));
+
 app.post('/api/admin/organizers', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const input = organizerSchema.parse(request.body);
   const passwordHash = await bcrypt.hash(input.password, 12);
   try {
     const result = await pool.query(
       `INSERT INTO users (role_id, username, email, password_hash, full_name, status, email_verified)
-       SELECT role_id, $1, LOWER($2), $3, $4, 'active', TRUE FROM roles WHERE role_name = 'ORGANIZER'
+       SELECT role_id, $1, LOWER($2), $3, $4, 'active', TRUE FROM roles WHERE role_name = $5
        RETURNING user_id, username, email, full_name, status, created_at`,
-      [input.username, input.email, passwordHash, input.fullName],
+      [input.username, input.email, passwordHash, input.fullName, input.role],
     );
     const user = result.rows[0];
     if (!user) {
@@ -811,8 +1105,8 @@ app.post('/api/admin/organizers', requireAuth, requireAdmin, asyncRoute(async (r
     }
     await pool.query(
       `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
-       VALUES ($1, 'CREATE', 'USER', $2, jsonb_build_object('role', 'ORGANIZER'))`,
-      [request.user?.userId, user.user_id],
+       VALUES ($1, 'CREATE', 'USER', $2, jsonb_build_object('role', $3))`,
+      [request.user?.userId, user.user_id, input.role],
     );
     response.status(201).json({
       user: {
@@ -820,7 +1114,7 @@ app.post('/api/admin/organizers', requireAuth, requireAdmin, asyncRoute(async (r
         username: user.username,
         email: user.email,
         fullName: user.full_name,
-        role: 'ORGANIZER',
+        role: input.role,
       },
     });
   } catch (error: unknown) {
@@ -914,9 +1208,78 @@ app.post('/api/admin/programs', requireAuth, requireProgramManager, asyncRoute(a
   }
 }));
 
+app.patch('/api/organizer/programs/:programId', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
+  const input = z.object({
+    programName: z.string().trim().min(1).max(200),
+    description: z.string().max(5000).optional(),
+    rules: z.string().max(10000).optional(),
+    ticketPrice: z.number().positive(),
+    totalTickets: z.number().int().positive(),
+    startTime: z.string().datetime().optional(),
+    endTime: z.string().datetime().optional(),
+    drawTime: z.string().datetime().optional(),
+    prizeName: z.string().trim().min(1).max(200),
+    prizeValue: z.number().nonnegative(),
+  }).parse(request.body);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query(
+      `SELECT p.*,
+              COUNT(t.ticket_id) FILTER (WHERE t.status IN ('sold', 'held'))::int AS reserved_tickets
+       FROM lottery_programs p LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
+       WHERE p.program_id = $1 AND p.created_by = $2
+       GROUP BY p.program_id FOR UPDATE`,
+      [request.params.programId, request.user?.userId],
+    );
+    const program = current.rows[0];
+    if (!program) {
+      await client.query('ROLLBACK');
+      response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+      return;
+    }
+    if (!['draft', 'rejected'].includes(program.status)) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Chỉ chương trình nháp hoặc bị từ chối mới được chỉnh sửa.' });
+      return;
+    }
+    if (program.reserved_tickets > 0) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Chương trình đã có vé được giữ hoặc bán, không thể thay đổi dải vé.' });
+      return;
+    }
+    const updated = await client.query(
+      `UPDATE lottery_programs
+       SET program_name = $1, description = $2, rules = $3, ticket_price = $4,
+           total_tickets = $5, start_time = $6, end_time = $7, draw_time = $8,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE program_id = $9 RETURNING *`,
+      [input.programName, input.description, input.rules, input.ticketPrice, input.totalTickets, input.startTime, input.endTime, input.drawTime, request.params.programId],
+    );
+    await client.query('DELETE FROM lottery_tickets WHERE program_id = $1', [request.params.programId]);
+    for (let index = 1; index <= input.totalTickets; index += 1) {
+      await client.query(
+        'INSERT INTO lottery_tickets (program_id, ticket_number, price) VALUES ($1, $2, $3)',
+        [request.params.programId, String(index).padStart(String(input.totalTickets).length, '0'), input.ticketPrice],
+      );
+    }
+    await client.query(
+      `UPDATE prizes SET prize_name = $1, estimated_value = $2 WHERE program_id = $3`,
+      [input.prizeName, input.prizeValue, request.params.programId],
+    );
+    await client.query('COMMIT');
+    response.json(updated.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}));
+
 app.patch('/api/admin/programs/:programId/status', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const input = z.object({
-    status: z.enum(['upcoming', 'active', 'ended', 'rejected', 'cancelled', 'draft']),
+    status: z.enum(['upcoming', 'active', 'ended', 'rejected', 'cancelled', 'draft', 'suspended']),
     rejectionReason: z.string().trim().max(2000).optional(),
   }).parse(request.body);
   if (input.status === 'rejected' && !input.rejectionReason) {
@@ -951,22 +1314,81 @@ app.patch('/api/admin/programs/:programId/status', requireAuth, requireAdmin, as
   response.json(result.rows[0]);
 }));
 
-app.post('/api/admin/programs/:programId/draw', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
-  const seed = crypto.randomBytes(32).toString('hex');
+app.post('/api/admin/programs/:programId/rerun-request', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
+  const input = z.object({ reason: z.string().trim().min(5).max(2000) }).parse(request.body);
+  const program = await pool.query('SELECT program_id, status FROM lottery_programs WHERE program_id = $1', [request.params.programId]);
+  if (!program.rows[0]) {
+    response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+     VALUES ($1, 'REQUEST_RERUN_REVIEW', 'PROGRAM', $2, $3)`,
+    [request.user?.userId, request.params.programId, JSON.stringify({ reason: input.reason, previousStatus: program.rows[0].status })],
+  );
+  response.status(201).json({ message: 'Đã lập yêu cầu xử lý/quay lại. Kết quả cũ được giữ nguyên.' });
+}));
+
+app.post('/api/admin/programs/:programId/draw', requireAuth, requireDrawOperator, asyncRoute(async (request, response) => {
+  const input = z.object({ seed: z.string().trim().min(8).max(256) }).parse(request.body);
+  const seed = input.seed;
   const commitment = crypto.createHash('sha256').update(seed).digest('hex');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const program = await client.query(
-      `SELECT * FROM lottery_programs
+      `SELECT p.* FROM lottery_programs p
        WHERE program_id = $1
-       AND ($2 = 'ADMIN' OR created_by = $3)
+       AND (p.status IN ('ended', 'closed')
+         OR (p.end_time IS NOT NULL AND p.end_time <= CURRENT_TIMESTAMP))
+       AND ($2 = 'ADMIN' OR EXISTS (
+         SELECT 1 FROM program_draw_operators a
+         WHERE a.program_id = p.program_id AND a.operator_user_id = $3
+       ))
        FOR UPDATE`,
       [request.params.programId, request.user?.role, request.user?.userId],
     );
     if (!program.rows[0]) {
       await client.query('ROLLBACK');
       response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+      return;
+    }
+    const existing = await client.query(
+      `SELECT 1 FROM draws WHERE program_id = $1 AND status = 'completed' LIMIT 1`,
+      [request.params.programId],
+    );
+    if (existing.rowCount) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Chương trình đã có kết quả quay thưởng và không thể quay lại.' });
+      return;
+    }
+    const pending = await client.query(
+      `SELECT 1 FROM orders o
+       JOIN order_items oi ON oi.order_id = o.order_id
+       JOIN lottery_tickets t ON t.ticket_id = oi.ticket_id
+       WHERE t.program_id = $1 AND o.status = 'pending'
+         AND (o.expires_at IS NULL OR o.expires_at > CURRENT_TIMESTAMP)
+       LIMIT 1`,
+      [request.params.programId],
+    );
+    if (pending.rowCount) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Vẫn còn đơn hàng chờ thanh toán, chưa thể chốt danh sách vé.' });
+      return;
+    }
+    await client.query(
+      `UPDATE lottery_tickets
+       SET status = 'available', held_by = NULL, held_until = NULL
+       WHERE program_id = $1 AND status = 'held' AND held_until <= CURRENT_TIMESTAMP`,
+      [request.params.programId],
+    );
+    const prizeCount = await client.query(
+      `SELECT COALESCE(SUM(quantity), 0)::int AS count FROM prizes WHERE program_id = $1`,
+      [request.params.programId],
+    );
+    if (prizeCount.rows[0].count < 1) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Chương trình chưa cấu hình giải thưởng.' });
       return;
     }
     const draw = await client.query(
@@ -976,18 +1398,46 @@ app.post('/api/admin/programs/:programId/draw', requireAuth, requireProgramManag
       [request.params.programId, request.user?.userId, commitment, seed],
     );
     const tickets = await client.query(
-      `SELECT ticket_id FROM lottery_tickets WHERE program_id = $1 AND status = 'sold' ORDER BY MD5(ticket_number || $2) LIMIT 3`,
-      [request.params.programId, seed],
+      `SELECT t.ticket_id, t.ticket_number, o.user_id
+       FROM lottery_tickets t
+       JOIN order_items oi ON oi.ticket_id = t.ticket_id
+       JOIN orders o ON o.order_id = oi.order_id AND o.status = 'confirmed'
+       WHERE t.program_id = $1 AND t.status = 'sold'
+       ORDER BY MD5(t.ticket_number || $2)
+       LIMIT $3`,
+      [request.params.programId, seed, prizeCount.rows[0].count],
     );
-    const prizes = await client.query(`SELECT prize_id FROM prizes WHERE program_id = $1 ORDER BY prize_id LIMIT $2`, [request.params.programId, tickets.rowCount]);
+    if ((tickets.rowCount ?? 0) < 1) {
+      await client.query('ROLLBACK');
+      response.status(409).json({ error: 'Chương trình chưa có vé đã thanh toán để quay thưởng.' });
+      return;
+    }
+    const prizes = await client.query(
+      `SELECT prize_id FROM prizes p
+       CROSS JOIN LATERAL generate_series(1, p.quantity)
+       WHERE p.program_id = $1 ORDER BY p.prize_id LIMIT $2`,
+      [request.params.programId, tickets.rowCount],
+    );
     for (let index = 0; index < tickets.rows.length; index += 1) {
-      await client.query(
+      const result = await client.query(
         `INSERT INTO draw_results (draw_id, program_id, ticket_id, prize_id, result_rank, is_winner, verification_data)
-         VALUES ($1, $2, $3, $4, $5, $6, jsonb_build_object('algorithm', 'SHA-256', 'seed', $7))`,
-        [draw.rows[0].draw_id, request.params.programId, tickets.rows[index].ticket_id, prizes.rows[index]?.prize_id ?? null, index + 1, Boolean(prizes.rows[index]), seed],
+         VALUES ($1, $2, $3, $4, $5, TRUE, jsonb_build_object('algorithm', 'MD5 ticket ordering with revealed seed', 'seed', $6))
+         RETURNING result_id`,
+        [draw.rows[0].draw_id, request.params.programId, tickets.rows[index].ticket_id, prizes.rows[index].prize_id, index + 1, seed],
+      );
+      await client.query(
+        `INSERT INTO winners (result_id, user_id, claim_status, responsible_user_id)
+        VALUES ($1, $2, 'pending', $3)`,
+        [result.rows[0].result_id, tickets.rows[index].user_id, request.user?.userId],
       );
     }
     await client.query(`UPDATE lottery_programs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE program_id = $1`, [request.params.programId]);
+    await client.query(
+      `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
+       VALUES ($1, 'DRAW_COMPLETED', 'PROGRAM', $2,
+         jsonb_build_object('drawId', $3, 'winnerCount', $4, 'seedCommitment', $5))`,
+      [request.user?.userId, request.params.programId, draw.rows[0].draw_id, tickets.rowCount, commitment],
+    );
     await client.query('COMMIT');
     response.status(201).json(draw.rows[0]);
   } catch (error) {

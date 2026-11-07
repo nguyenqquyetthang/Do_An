@@ -44,6 +44,14 @@ export function requireProgramManager(request: AuthenticatedRequest, response: R
   next();
 }
 
+export function requireDrawOperator(request: AuthenticatedRequest, response: Response, next: NextFunction) {
+  if (request.user?.role !== 'ADMIN' && request.user?.role !== 'DRAW_OPERATOR') {
+    response.status(403).json({ error: 'Chỉ quản trị viên hoặc ban tổ chức quay thưởng mới có quyền này.' });
+    return;
+  }
+  next();
+}
+
 export function asyncRoute(handler: (request: AuthenticatedRequest, response: Response) => Promise<void>) {
   return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
     handler(request, response).catch(next);

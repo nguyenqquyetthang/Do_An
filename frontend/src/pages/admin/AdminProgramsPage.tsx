@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ExternalLink, Lock, PlayCircle, PlusCircle, Send, Wand2, XCircle } from "lucide-react";
+import { Edit3, ExternalLink, Lock, PlayCircle, PlusCircle, Send, Wand2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +65,7 @@ const AdminProgramsPage = () => {
             <SelectItem value="ended">Đã kết thúc</SelectItem>
             <SelectItem value="closed">Đã khoá bán</SelectItem>
             <SelectItem value="published">Đã công bố</SelectItem>
+            <SelectItem value="suspended">Tạm dừng</SelectItem>
           </SelectContent>
         </Select>
         <Badge variant="outline">{visible.length} chương trình</Badge>
@@ -114,6 +115,9 @@ const AdminProgramsPage = () => {
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       {currentUser?.role === "ORGANIZER" && (program.status === "draft" || program.status === "rejected") && (
+                        <Button asChild size="sm" variant="outline"><Link to={`/quan-tri/chuong-trinh/${program.id}/chinh-sua`}><Edit3 className="h-3.5 w-3.5" />Chỉnh sửa</Link></Button>
+                      )}
+                      {currentUser?.role === "ORGANIZER" && (program.status === "draft" || program.status === "rejected") && (
                         <Button
                           size="sm"
                           onClick={() => void submitProgram(program.id)
@@ -136,6 +140,19 @@ const AdminProgramsPage = () => {
                           <PlayCircle className="h-3.5 w-3.5" />
                           Duyệt
                         </Button>
+                      )}
+                      {currentUser?.role === "ADMIN" && ["upcoming", "active", "closed"].includes(program.status) && (
+                        <Button size="sm" variant="danger" onClick={() => {
+                          void setProgramStatus(program.id, "suspended").then(() => toast.success(`${program.code} đã được tạm dừng.`)).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tạm dừng."));
+                        }}>
+                          <Lock className="h-3.5 w-3.5" /> Tạm dừng
+                        </Button>
+                      )}
+                      {currentUser?.role === "ADMIN" && program.status === "published" && (
+                        <Button size="sm" variant="outline" onClick={() => {
+                          const reason = window.prompt("Nhập lý do yêu cầu xử lý/quay lại:");
+                          if (reason?.trim()) void import("@/lib/api").then(({ api }) => api.adminRerunRequest(program.id, reason.trim())).then(() => toast.success("Đã lập yêu cầu, kết quả cũ vẫn được giữ nguyên.")).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể lập yêu cầu."));
+                        }}>Yêu cầu xử lý lại</Button>
                       )}
                       {currentUser?.role === "ADMIN" && program.status === "pending_review" && (
                         <Button

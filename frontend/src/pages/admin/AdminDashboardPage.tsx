@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -38,22 +39,41 @@ import { ProgramStatusBadge } from "@/components/shared/StatusBadge";
 import { SectionHeading } from "@/components/shared/SectionHeading";
 import { formatCompactPoints, formatDateTime, formatNumber, formatPoints, shortTime } from "@/lib/format";
 import { useLottery } from "@/store/lottery";
+import { api } from "@/lib/api";
+import OperatorDashboardPage from "./OperatorDashboardPage";
 
 const AdminDashboardPage = () => {
   const { programs, orders, users, ledgers, audit, programStats, currentUser } = useLottery();
+  const [serverStats, setServerStats] = useState<Awaited<ReturnType<typeof api.organizerStats>> | null>(null);
 
-  const soldTotal = Object.values(ledgers).reduce((sum, ledger) => sum + ledger.sold.size, 0);
-  const revenue = programs.reduce(
+  useEffect(() => {
+    if (currentUser?.role === "ORGANIZER" || currentUser?.role === "ADMIN") {
+      api.organizerStats().then(setServerStats).catch(() => setServerStats(null));
+    }
+  }, [currentUser?.role]);
+
+  if (currentUser?.role === "DRAW_OPERATOR") return <OperatorDashboardPage />;
+
+  const soldTotal = serverStats?.programs.reduce((sum, item) => sum + item.sold_tickets, 0) ?? Object.values(ledgers).reduce((sum, ledger) => sum + ledger.sold.size, 0);
+  const revenue = serverStats?.programs.reduce((sum, item) => sum + Number(item.revenue), 0) ?? programs.reduce(
     (sum, program) => sum + (ledgers[program.id]?.sold.size ?? 0) * program.ticketPrice,
     0,
   );
-  const capacity = programs.reduce((sum, program) => sum + program.totalNumbers, 0);
+  const capacity = serverStats?.programs.reduce((sum, item) => sum + item.total_tickets, 0) ?? programs.reduce((sum, program) => sum + program.totalNumbers, 0);
   const fillRate = capacity === 0 ? 0 : (soldTotal / capacity) * 100;
 
-  const chartData = programs.map((program) => ({
+  const chartData = serverStats?.programs.map((program) => ({
+    name: program.program_code,
+    revenue: Number(program.revenue),
+    sold: program.sold_tickets,
+    remaining: program.remaining_tickets,
+  })) ?? programs.map((program) => ({
     name: program.code,
     revenue: (ledgers[program.id]?.sold.size ?? 0) * program.ticketPrice,
+    sold: ledgers[program.id]?.sold.size ?? 0,
+    remaining: Math.max(0, program.totalNumbers - (ledgers[program.id]?.sold.size ?? 0)),
   }));
+  const dailyData = serverStats?.daily.map((item) => ({ day: item.day, sold: item.sold_tickets })) ?? [];
 
   const activePrograms = programs.filter(
     (program) => program.status === "active" || program.status === "closed",
@@ -91,7 +111,7 @@ const AdminDashboardPage = () => {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Chương trình" value={programs.length} icon={ClipboardList} hint="Gồm cả bản nháp" />
-        <StatCard label="Đơn hàng" value={orders.length} icon={Coins} hint="Đã ghi nhận trong hệ thống" />
+        <StatCard label="Đơn hàng" value={serverStats?.programs.reduce((sum, item) => sum + item.successful_orders + item.failed_orders, 0) ?? orders.length} icon={Coins} hint="Thành công và thất bại" />
         <StatCard
           label="Người dùng"
           value={users.length}
@@ -154,6 +174,21 @@ const AdminDashboardPage = () => {
                     <Cell key={entry.name} fill="hsl(var(--primary))" />
                   ))}
                 </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-6 shadow-e1">
+          <SectionHeading title="Vé bán theo ngày" eyebrow="Đơn đã thanh toán" />
+          <div className="mt-6 h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dailyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip />
+                <Bar dataKey="sold" name="Vé bán" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

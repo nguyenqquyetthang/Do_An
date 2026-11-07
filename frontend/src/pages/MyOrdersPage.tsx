@@ -104,7 +104,7 @@ const MyOrdersPage = () => {
                 return (
                   <TableRow key={order.id}>
                     <TableCell className="font-mono-nums whitespace-nowrap text-[13px]">
-                      {order.id}
+                      {order.orderCode ?? order.id}
                       <span className="mt-1 block text-[11px] text-muted-foreground">
                         {formatDateTime(order.createdAt)}
                       </span>

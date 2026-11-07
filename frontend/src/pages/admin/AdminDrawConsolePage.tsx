@@ -38,6 +38,7 @@ import { buildRandomness, type DrawnNumber } from "@/lib/draw";
 import { formatDateTime, formatNumber, formatTicketNumber } from "@/lib/format";
 import { useLottery } from "@/store/lottery";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 const randomSeed = () => {
   const bytes = new Uint8Array(6);
@@ -48,7 +49,7 @@ const randomSeed = () => {
 
 const AdminDrawConsolePage = () => {
   const [searchParams] = useSearchParams();
-  const { programs, ledgers, previewDraw, publishResults, getProgram } = useLottery();
+  const { programs, ledgers, previewDraw, publishResults, getProgram, currentUser } = useLottery();
 
   const drawablePrograms = programs.filter(
     (program) => program.status === "closed" || program.status === "published",
@@ -83,8 +84,19 @@ const AdminDrawConsolePage = () => {
     toast.success("Đã tạo kết quả tạm thời. Chưa có gì được công bố.");
   };
 
-  const confirmPublish = () => {
+  const confirmPublish = async () => {
     if (!program) return;
+    if (currentUser?.role === "DRAW_OPERATOR") {
+      try {
+        await api.drawProgram(program.id, seed.trim());
+        setConfirmOpen(false);
+        toast.success(`Đã lưu và khóa kết quả quay thưởng cho ${program.code}.`);
+        window.location.reload();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Không thể thực hiện quay thưởng.");
+      }
+      return;
+    }
     const published = publishResults(program.id, seed.trim());
     setConfirmOpen(false);
     if (published) {

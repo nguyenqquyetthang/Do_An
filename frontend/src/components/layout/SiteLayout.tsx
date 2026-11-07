@@ -8,6 +8,7 @@ import {
   Ticket,
   Trophy,
   UserRound,
+  Bell,
   X,
 } from "lucide-react";
 
@@ -126,8 +127,11 @@ export function SiteHeader() {
                     </div>
                     <div className="my-1 h-px bg-border" />
                     {[
+                      { to: "/tai-khoan", label: "Thông tin cá nhân", icon: UserRound },
                       { to: "/ve-cua-toi", label: "Vé của tôi", icon: Ticket },
                       { to: "/don-hang", label: "Lịch sử đơn hàng", icon: Coins },
+                      { to: "/giai-thuong", label: "Giải thưởng của tôi", icon: Trophy },
+                      { to: "/thong-bao", label: "Thông báo", icon: Bell },
                       { to: "/ket-qua", label: "Kết quả quay số", icon: Trophy },
                     ].map((item) => (
                       <button

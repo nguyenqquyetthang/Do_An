@@ -10,9 +10,10 @@ const programLabels: Record<ProgramStatus, string> = {
   ended: "Đã kết thúc",
   closed: "Đã khoá bán",
   published: "Đã công bố",
+  suspended: "Tạm dừng",
 };
 
-const programVariants: Record<ProgramStatus, "soft" | "outline" | "verified" | "warning"> = {
+const programVariants: Record<ProgramStatus, "soft" | "outline" | "verified" | "warning" | "danger"> = {
   draft: "outline",
   pending_review: "warning",
   rejected: "outline",
@@ -21,6 +22,7 @@ const programVariants: Record<ProgramStatus, "soft" | "outline" | "verified" | "
   ended: "outline",
   closed: "outline",
   published: "verified",
+  suspended: "danger",
 };
 
 export function ProgramStatusBadge({ status, className }: { status: ProgramStatus; className?: string }) {

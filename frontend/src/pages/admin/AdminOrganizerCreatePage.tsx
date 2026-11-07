@@ -13,18 +13,20 @@ export default function AdminOrganizerCreatePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState<"ORGANIZER" | "DRAW_OPERATOR">("ORGANIZER");
   const [saving, setSaving] = useState(false);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
     try {
-      await api.createOrganizer({ fullName: name, username, email, password, confirmPassword });
+      await api.createOrganizer({ fullName: name, username, email, password, confirmPassword, role });
       setName("");
       setUsername("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
+      setRole("ORGANIZER");
       toast.success("Đã tạo tài khoản nhà tổ chức.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể tạo tài khoản.");
@@ -37,10 +39,22 @@ export default function AdminOrganizerCreatePage() {
     <div className="space-y-6">
       <SectionHeading
         eyebrow="Quản lý tài khoản"
-        title="Tạo tài khoản nhà tổ chức"
-        description="Chỉ ADMIN được cấp tài khoản ORGANIZER. Nhà tổ chức đăng nhập bằng tài khoản này để tạo bản nháp."
+        title="Cấp tài khoản nghiệp vụ"
+        description="Chỉ ADMIN được cấp tài khoản ORGANIZER hoặc DRAW_OPERATOR. Ban tổ chức quay thưởng chỉ xử lý các chương trình được phân công."
       />
       <form onSubmit={submit} className="max-w-xl space-y-4 rounded-xl border border-border bg-card p-6 shadow-e1">
+        <div>
+          <Label htmlFor="account-role">Vai trò</Label>
+          <select
+            id="account-role"
+            className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={role}
+            onChange={(event) => setRole(event.target.value as "ORGANIZER" | "DRAW_OPERATOR")}
+          >
+            <option value="ORGANIZER">Nhà tổ chức</option>
+            <option value="DRAW_OPERATOR">Ban tổ chức quay thưởng</option>
+          </select>
+        </div>
         <div>
           <Label htmlFor="organizer-name">Họ và tên</Label>
           <Input id="organizer-name" className="mt-2" value={name} onChange={(event) => setName(event.target.value)} required />

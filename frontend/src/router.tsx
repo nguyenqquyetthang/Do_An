@@ -14,6 +14,9 @@ import ResultDetailPage from "./pages/ResultDetailPage";
 import ResultsPage from "./pages/ResultsPage";
 import VerifyPage from "./pages/VerifyPage";
 import WinnersPage from "./pages/WinnersPage";
+import ProfilePage from "./pages/ProfilePage";
+import NotificationsPage from "./pages/NotificationsPage";
+import PrizesPage from "./pages/PrizesPage";
 import AdminAuditPage from "./pages/admin/AdminAuditPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import AdminDrawConsolePage from "./pages/admin/AdminDrawConsolePage";
@@ -24,6 +27,8 @@ import AdminProgramsPage from "./pages/admin/AdminProgramsPage";
 import AdminOrganizerCreatePage from "./pages/admin/AdminOrganizerCreatePage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import OrganizerOrdersPage from "./pages/admin/OrganizerOrdersPage";
+import AdminProgramEditPage from "./pages/admin/AdminProgramEditPage";
+import OperatorDashboardPage from "./pages/admin/OperatorDashboardPage";
 
 export const routers = [
   {
@@ -39,6 +44,9 @@ export const routers = [
       { path: "don/:orderId/thanh-toan", name: "payment", element: <PaymentPage /> },
       { path: "ve-cua-toi", name: "my-tickets", element: <MyTicketsPage /> },
       { path: "don-hang", name: "my-orders", element: <MyOrdersPage /> },
+      { path: "tai-khoan", name: "profile", element: <ProfilePage /> },
+      { path: "thong-bao", name: "notifications", element: <NotificationsPage /> },
+      { path: "giai-thuong", name: "my-prizes", element: <PrizesPage /> },
       { path: "ket-qua", name: "results", element: <ResultsPage /> },
       { path: "ket-qua/:programId", name: "result-detail", element: <ResultDetailPage /> },
       { path: "xac-minh/:programId", name: "verify", element: <VerifyPage /> },
@@ -54,12 +62,14 @@ export const routers = [
       { index: true, name: "admin-dashboard", element: <AdminDashboardPage /> },
       { path: "chuong-trinh", name: "admin-programs", element: <AdminProgramsPage /> },
       { path: "chuong-trinh/tao-moi", name: "admin-program-create", element: <AdminProgramCreatePage /> },
+      { path: "chuong-trinh/:programId/chinh-sua", name: "admin-program-edit", element: <AdminProgramEditPage /> },
       { path: "tai-khoan/nha-to-chuc", name: "admin-organizer-create", element: <AdminOrganizerCreatePage /> },
       { path: "tai-khoan", name: "admin-users", element: <AdminUsersPage /> },
       { path: "kho-ve", name: "admin-inventory", element: <AdminInventoryPage /> },
       { path: "don-hang", name: "admin-orders", element: <AdminOrdersPage /> },
       { path: "don-hang-nha-to-chuc", name: "organizer-orders", element: <OrganizerOrdersPage /> },
       { path: "quay-so", name: "admin-draw", element: <AdminDrawConsolePage /> },
+      { path: "nguoi-thang", name: "operator-winners", element: <OperatorDashboardPage /> },
       { path: "nhat-ky", name: "admin-audit", element: <AdminAuditPage /> },
     ],
   },

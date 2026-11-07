@@ -48,12 +48,14 @@ export interface NewProgramInput {
   mediaName?: string;
   mediaKind?: "image" | "video";
   mediaSize?: number;
+  mediaUrl?: string;
   publish: boolean;
 }
 
 interface LotteryContextValue extends AppState {
   currentUser: DemoUser | null;
   login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  updateProfile: (input: { fullName: string; email: string; phone?: string; address?: string; province?: string; district?: string; ward?: string }) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   getProgram: (id: string) => Program | undefined;
   getLedger: (id: string) => Ledger;
@@ -83,8 +85,13 @@ function normalizeUser(user: ApiAuthUser): DemoUser {
     id: String(user.userId),
     name: user.fullName?.trim() || user.username?.trim() || user.email,
     email: user.email,
+    phone: user.phone ?? undefined,
+    address: user.address ?? undefined,
+    province: user.province ?? undefined,
+    district: user.district ?? undefined,
+    ward: user.ward ?? undefined,
     password: "",
-    role: role === "ADMIN" || role === "ORGANIZER" ? role : "USER",
+    role: role === "ADMIN" || role === "ORGANIZER" || role === "DRAW_OPERATOR" ? role : "USER",
     balance: Number(user.balance ?? 0),
     joinedAt: new Date().toISOString(),
   };
@@ -95,6 +102,7 @@ function normalizeProgram(program: Program): Program {
   if (!("program_id" in raw)) return program;
 
   const prizes = Array.isArray(raw.prizes) ? raw.prizes as Array<Record<string, unknown>> : [];
+  const rawWinners = Array.isArray(raw.winners) ? raw.winners as Array<Record<string, unknown>> : [];
   const firstPrize = prizes[0];
   const storedStatus = String(raw.status ?? "draft");
   const startAt = String(raw.start_time ?? new Date().toISOString());
@@ -117,12 +125,22 @@ function normalizeProgram(program: Program): Program {
   }
 
   const mappedStatus: Program["status"] =
+<<<<<<< HEAD
     computedStatus === "active" || computedStatus === "drawing" ? "active"
       : computedStatus === "upcoming" || computedStatus === "published" ? "upcoming"
       : computedStatus === "ended" || computedStatus === "completed" || computedStatus === "closed" || computedStatus === "cancelled" ? "ended"
       : computedStatus === "draft" || computedStatus === "pending_review" || computedStatus === "rejected"
         ? computedStatus
         : "draft";
+=======
+    status === "published" ? "upcoming"
+      : status === "drawing" ? "active"
+      : status === "completed" ? "published"
+      : status === "closed" || status === "cancelled" ? "ended"
+      : status === "draft" || status === "pending_review" || status === "rejected"
+        ? status
+        : status === "active" || status === "upcoming" || status === "ended" ? status : "draft";
+>>>>>>> 0b3d672 (07/11/2026)
 
   return {
     id: String(raw.program_id),
@@ -145,7 +163,7 @@ function normalizeProgram(program: Program): Program {
     startAt,
     endAt,
     drawnAt: raw.draw_time ? String(raw.draw_time) : undefined,
-    publishedAt: raw.published_at ? String(raw.published_at) : undefined,
+    publishedAt: raw.published_at ? String(raw.published_at) : rawWinners.length > 0 ? String(raw.draw_completed_at ?? raw.draw_time ?? new Date().toISOString()) : undefined,
     status: mappedStatus,
     rejectionReason: raw.rejection_reason ? String(raw.rejection_reason) : undefined,
     category: "other",
@@ -153,8 +171,16 @@ function normalizeProgram(program: Program): Program {
     rules: typeof raw.rules === "string" ? raw.rules.split(/\r?\n/).filter(Boolean) : [],
     organizer: "LuckyDraw",
     organizerId: String(raw.created_by ?? ""),
-    commitHash: String(raw.commitment ?? raw.program_code ?? raw.program_id),
+    commitHash: String(raw.draw_commitment ?? raw.commitment ?? raw.program_code ?? raw.program_id),
     serverSecret: "",
+    publicSeed: raw.public_seed ? String(raw.public_seed) : undefined,
+    winners: rawWinners.map((winner) => ({
+      termId: String(winner.termId ?? ""),
+      termLabel: String(winner.termLabel ?? "Giải thưởng"),
+      number: Number(winner.number),
+      ownerName: String(winner.ownerName ?? "Không xác định"),
+      status: winner.status === "awarded" ? "paid" as const : winner.status === "verified" ? "confirmed" as const : "pending" as const,
+    })),
   };
 }
 
@@ -191,8 +217,14 @@ function normalizeOrder(order: any, currentUser: DemoUser): Order {
       : Date.now() + HOLD_DURATION_MS;
 
   return {
+<<<<<<< HEAD
     id: String(order?.order_id ?? order?.id ?? ""),
     programId,
+=======
+    id: String(order.order_id),
+    orderCode: order.order_code,
+    programId: String(firstTicket?.programId ?? ""),
+>>>>>>> 0b3d672 (07/11/2026)
     userId: currentUser.id,
     userName: currentUser.name,
     numbers,
@@ -260,6 +292,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+<<<<<<< HEAD
     let fetchSeq = 0;
 
     const loadData = async () => {
@@ -273,6 +306,15 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
         // Tránh race condition: nếu có request mới hơn hoặc component đã unmount thì bỏ qua
         if (!active || currentSeq !== fetchSeq) return;
 
+=======
+    (currentUser?.role === "DRAW_OPERATOR"
+      ? api.operatorPrograms()
+      : currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
+        ? api.getAdminPrograms()
+        : api.getPrograms())
+      .then(async (programs) => {
+        if (!active) return;
+>>>>>>> 0b3d672 (07/11/2026)
         const normalizedPrograms = programs.map(normalizeProgram);
         const ticketEntries = await Promise.all(
           normalizedPrograms.map(async (program) => [program.id, await api.tickets(program.id)] as const),
@@ -399,6 +441,20 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Đăng nhập không thành công." };
+    }
+  }, []);
+
+  const updateProfile = useCallback(async (input: { fullName: string; email: string; phone?: string; address?: string; province?: string; district?: string; ward?: string }) => {
+    try {
+      const { user } = await api.updateProfile(input);
+      const normalizedUser = normalizeUser(user);
+      setState((previous) => ({
+        ...previous,
+        users: [...previous.users.filter((item) => item.id !== normalizedUser.id), normalizedUser],
+      }));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Không thể cập nhật thông tin." };
     }
   }, []);
 
@@ -560,6 +616,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
         status: initialStatus,
         prizeName: input.prizeName,
         prizeValue: input.prizeTerms.reduce((sum, term) => sum + term.value * term.quantity, 0),
+          ...(input.mediaKind === "image" ? { imageUrl: input.mediaUrl } : { videoUrl: input.mediaUrl }),
       });
       const program = normalizeProgram(created);
       setState((prev) => ({
@@ -684,6 +741,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
     currentUser,
     login,
     logout,
+    updateProfile,
     getProgram,
     getLedger,
     programStats,

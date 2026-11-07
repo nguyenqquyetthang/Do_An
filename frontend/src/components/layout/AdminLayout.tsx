@@ -9,8 +9,10 @@ import {
   ShieldAlert,
   Ticket,
   Wand2,
+  Trophy,
   UserPlus,
   Users,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,17 +28,20 @@ const adminNav: Array<{
   end?: boolean;
   adminOnly?: boolean;
   organizerOnly?: boolean;
+  operatorOnly?: boolean;
 }> = [
   { to: "/quan-tri", label: "Tổng quan", icon: LayoutDashboard, end: true },
-  { to: "/quan-tri/chuong-trinh", label: "Chương trình", icon: ClipboardList },
-  { to: "/quan-tri/chuong-trinh/tao-moi", label: "Tạo chương trình", icon: PlusCircle },
-  { to: "/quan-tri/kho-ve", label: "Kho vé", icon: Ticket },
-  { to: "/quan-tri/don-hang", label: "Đơn hàng", icon: Receipt },
+  { to: "/quan-tri/chuong-trinh", label: "Chương trình", icon: ClipboardList, operatorOnly: false },
+  { to: "/quan-tri/chuong-trinh/tao-moi", label: "Tạo chương trình", icon: PlusCircle, operatorOnly: false },
+  { to: "/quan-tri/kho-ve", label: "Kho vé", icon: Ticket, operatorOnly: false },
+  { to: "/quan-tri/don-hang", label: "Đơn hàng", icon: Receipt, operatorOnly: false },
   { to: "/quan-tri/don-hang-nha-to-chuc", label: "Đơn chương trình", icon: Receipt, organizerOnly: true },
-  { to: "/quan-tri/quay-so", label: "Bàn quay số", icon: Wand2 },
-  { to: "/quan-tri/nhat-ky", label: "Audit log", icon: FileClock },
+  { to: "/quan-tri/quay-so", label: "Bàn quay số", icon: Wand2, operatorOnly: true },
+  { to: "/quan-tri/nguoi-thang", label: "Trao giải", icon: Trophy, operatorOnly: true },
+  { to: "/quan-tri/nhat-ky", label: "Audit log", icon: FileClock, operatorOnly: false },
   { to: "/quan-tri/tai-khoan/nha-to-chuc", label: "Tạo nhà tổ chức", icon: UserPlus, adminOnly: true },
   { to: "/quan-tri/tai-khoan", label: "Tài khoản", icon: Users, adminOnly: true },
+  { to: "/tai-khoan", label: "Hồ sơ & mật khẩu", icon: UserRound },
 ];
 
 export function AdminLayout({ children }: { children?: React.ReactNode }) {
@@ -76,7 +81,7 @@ export function AdminLayout({ children }: { children?: React.ReactNode }) {
             </span>
           </div>
           <nav className="mt-8 flex flex-1 flex-col gap-1 px-3">
-            {adminNav.filter((item) => (!item.adminOnly || currentUser.role === "ADMIN") && (!item.organizerOnly || currentUser.role === "ORGANIZER")).map((item) => (
+            {adminNav.filter((item) => (!item.adminOnly || currentUser.role === "ADMIN") && (!item.organizerOnly || currentUser.role === "ORGANIZER") && (!item.operatorOnly || currentUser.role === "DRAW_OPERATOR" || currentUser.role === "ADMIN") && (currentUser.role !== "DRAW_OPERATOR" || item.operatorOnly === true || item.to === "/quan-tri" || item.to === "/quan-tri/nhat-ky")).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -111,7 +116,7 @@ export function AdminLayout({ children }: { children?: React.ReactNode }) {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3 overflow-x-auto border-b border-border bg-background/90 px-4 py-3 backdrop-blur lg:hidden">
-            {adminNav.filter((item) => (!item.adminOnly || currentUser.role === "ADMIN") && (!item.organizerOnly || currentUser.role === "ORGANIZER")).map((item) => (
+            {adminNav.filter((item) => (!item.adminOnly || currentUser.role === "ADMIN") && (!item.organizerOnly || currentUser.role === "ORGANIZER") && (!item.operatorOnly || currentUser.role === "DRAW_OPERATOR" || currentUser.role === "ADMIN") && (currentUser.role !== "DRAW_OPERATOR" || item.operatorOnly === true || item.to === "/quan-tri" || item.to === "/quan-tri/nhat-ky")).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

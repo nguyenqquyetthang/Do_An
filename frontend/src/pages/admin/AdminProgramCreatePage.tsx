@@ -32,6 +32,7 @@ import { SectionHeading } from "@/components/shared/SectionHeading";
 import { buildCommitment } from "@/lib/draw";
 import { formatNumber, formatPoints } from "@/lib/format";
 import { useLottery } from "@/store/lottery";
+import { api } from "@/lib/api";
 import type { PrizeCategory, PrizeTerm } from "@/data/types";
 
 const IMAGE_LIMIT = 10 * 1024 * 1024;
@@ -77,7 +78,7 @@ const AdminProgramCreatePage = () => {
     { id: "nhi", label: "Giải nhì", quantity: 3, value: 1_500_000 },
   ]);
   const [secret, setSecret] = useState(randomSecret);
-  const [media, setMedia] = useState<{ name: string; kind: "image" | "video"; size: number } | null>(null);
+  const [media, setMedia] = useState<{ name: string; kind: "image" | "video"; size: number; url: string } | null>(null);
 
   const nextCode = useMemo(() => `#${String(programs.length + 1).padStart(3, "0")}`, [programs.length]);
   const commitHash = buildCommitment("new", secret);
@@ -103,7 +104,7 @@ const AdminProgramCreatePage = () => {
     return list;
   }, [name, prizeName, priceValue, totalNumbersValue, endAt, startAt, terms, secret]);
 
-  const handleFile = (file: File | undefined) => {
+  const handleFile = async (file: File | undefined) => {
     if (!file) return;
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
@@ -119,8 +120,13 @@ const AdminProgramCreatePage = () => {
       toast.error("Video vượt quá 100MB. Vui lòng chọn video ngắn hơn.");
       return;
     }
-    setMedia({ name: file.name, kind: isImage ? "image" : "video", size: file.size });
-    toast.success(`Đã đính kèm ${file.name}`);
+    try {
+      const uploaded = await api.uploadMedia(file);
+      setMedia({ name: file.name, kind: uploaded.type, size: file.size, url: uploaded.url });
+      toast.success(`Đã tải lên ${file.name}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể tải tệp lên.");
+    }
   };
 
   const submit = async (publish: boolean) => {
@@ -142,7 +148,12 @@ const AdminProgramCreatePage = () => {
       mediaName: media?.name,
       mediaKind: media?.kind,
       mediaSize: media?.size,
+<<<<<<< HEAD
       publish,
+=======
+      mediaUrl: media?.url,
+      publish: false,
+>>>>>>> 0b3d672 (07/11/2026)
     });
     toast.success(
       publish ? `Đã công bố chương trình ${program.code}.` : `Đã lưu nháp chương trình ${program.code}.`,

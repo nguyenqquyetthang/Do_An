@@ -1,4 +1,4 @@
-export type Role = "USER" | "ORGANIZER" | "ADMIN";
+export type Role = "USER" | "ORGANIZER" | "DRAW_OPERATOR" | "ADMIN";
 
 export type ProgramStatus =
   | "draft"
@@ -8,7 +8,8 @@ export type ProgramStatus =
   | "active"
   | "ended"
   | "closed"
-  | "published";
+  | "published"
+  | "suspended";
 
 export type TicketStateServer = "available" | "held" | "sold" | "unavailable";
 
@@ -64,6 +65,7 @@ export interface Program {
 
 export interface Order {
   id: string;
+  orderCode?: string;
   programId: string;
   userId: string;
   userName: string;
@@ -75,6 +77,7 @@ export interface Order {
   paidAt?: string;
   holdUntil: number;
   method?: string;
+  paymentCode?: string;
 }
 
 export interface AuditEntry {
@@ -93,6 +96,11 @@ export interface DemoUser {
   id: string;
   name: string;
   email: string;
+  phone?: string;
+  address?: string;
+  province?: string;
+  district?: string;
+  ward?: string;
   password: string;
   role: Role;
   balance: number;

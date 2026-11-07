@@ -15,7 +15,8 @@ npm run dev
 1. Tạo database `lottery_distribution` trong PostgreSQL.
 2. Chạy `database/scripts/init.sql` trên database vừa tạo.
    Nếu database đã tồn tại, chạy thêm `database/migrations/002_program_review_workflow.sql`
-   để bổ sung trạng thái duyệt chương trình và lý do từ chối.
+   và `database/migrations/003_draw_operator_workflow.sql` để bổ sung trạng thái
+   duyệt chương trình, vai trò ban tổ chức quay thưởng và bảng phân công.
 3. Kiểm tra file `.env` ở thư mục gốc. File này không được commit và chứa
    `DATABASE_URL`, `JWT_SECRET`, `PORT` cùng cấu hình CORS.
 4. Khởi động API:
@@ -56,6 +57,11 @@ vai trò mới thành `USER`, không tin role do client gửi lên.
 Vai trò **`ADMIN`** không thể tự đăng ký; chỉ tài khoản quản trị được cấp trong
 database mới có quyền quản trị toàn hệ thống. Backend luôn kiểm tra role trong
 JWT nên việc ẩn route ở frontend không phải là cơ chế bảo mật duy nhất.
+
+Vai trò **`DRAW_OPERATOR`** do Admin cấp. Ban tổ chức chỉ được xem chương trình
+được phân công và thực hiện một lần quay sau khi chương trình kết thúc, không còn
+đơn hàng chờ thanh toán và có vé đã bán. Kết quả được lưu cùng người thắng và
+nhật ký audit trong một transaction; không thể quay lại chương trình đã có kết quả.
 
 ### Cấp quyền Admin bằng database
 

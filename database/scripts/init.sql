@@ -62,7 +62,7 @@ CREATE TABLE lottery_programs (
     CONSTRAINT ck_program_status CHECK (
         status IN (
             'draft', 'pending_review', 'rejected', 'upcoming', 'active',
-            'ended', 'published', 'closed', 'drawing', 'completed', 'cancelled'
+            'ended', 'published', 'closed', 'drawing', 'completed', 'cancelled', 'suspended'
         )
     )
 );
@@ -221,11 +221,16 @@ CREATE TABLE winners (
     claim_status VARCHAR(20) NOT NULL DEFAULT 'pending',
     won_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     claimed_at TIMESTAMPTZ,
+    responsible_user_id BIGINT REFERENCES users(user_id),
+    contacted_at TIMESTAMPTZ,
+    verified_at TIMESTAMPTZ,
+    awarded_at TIMESTAMPTZ,
+    evidence_url TEXT,
     notes TEXT,
     CONSTRAINT ck_winner_claim_status CHECK (
         claim_status IN (
-            'pending', 'contacted', 'verified',
-            'awarded', 'rejected'
+        'pending', 'contacted', 'verified', 'processing',
+        'awarded', 'failed', 'disputed', 'rejected'
         )
     )
 );
@@ -291,6 +296,9 @@ CREATE INDEX idx_winners_user
 CREATE INDEX idx_winners_claim_status
     ON winners(claim_status);
 
+CREATE INDEX idx_winners_responsible
+    ON winners(responsible_user_id);
+
 CREATE INDEX idx_audit_logs_created
     ON audit_logs(created_at DESC);
 
@@ -306,5 +314,11 @@ VALUES
     ('ADMIN', 'Quản trị toàn bộ hệ thống'),
     ('ORGANIZER', 'Quản lý chương trình quay số và giải thưởng'),
     ('USER', 'Người dùng tham gia chương trình'),
-    ('AUDITOR', 'Kiểm tra lịch sử và tính minh bạch')
+    ('AUDITOR', 'Kiểm tra lịch sử và tính minh bạch'),
+    ('DRAW_OPERATOR', 'Thực hiện quay thưởng và theo dõi trao giải')
 ON CONFLICT (role_name) DO NOTHING;
+ALTER TABLE users
+ADD COLUMN address TEXT,
+ADD COLUMN province VARCHAR(100),
+ADD COLUMN district VARCHAR(100),
+ADD COLUMN ward VARCHAR(100);

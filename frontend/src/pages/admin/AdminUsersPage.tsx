@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Lock, Search, Unlock } from "lucide-react";
+import { KeyRound, Lock, Search, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,18 @@ const AdminUsersPage = () => {
     }
   };
 
+  const revokeRole = async (user: AdminUser) => {
+    if (!["ORGANIZER", "DRAW_OPERATOR"].includes(user.role)) return;
+    if (!window.confirm(`Thu hồi quyền ${user.role} của ${user.fullName}?`)) return;
+    try {
+      await api.revokeRole(String(user.userId));
+      setUsers((current) => current.map((item) => item.userId === user.userId ? { ...item, role: "USER", status: "active" } : item));
+      toast.success("Đã thu hồi quyền nghiệp vụ.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể thu hồi quyền.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <SectionHeading eyebrow="Quản trị tài khoản" title="Người mua và người tạo chương trình" description="Theo dõi vai trò, trạng thái hoạt động và khóa/mở tài khoản khi cần." />
@@ -66,6 +78,11 @@ const AdminUsersPage = () => {
                     {user.status === "locked" ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                     {user.status === "locked" ? "Mở khóa" : "Khóa"}
                   </Button>
+                  {["ORGANIZER", "DRAW_OPERATOR"].includes(user.role) ? (
+                    <Button size="sm" variant="danger" onClick={() => void revokeRole(user)}>
+                      <KeyRound className="h-3.5 w-3.5" /> Thu hồi quyền
+                    </Button>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}
