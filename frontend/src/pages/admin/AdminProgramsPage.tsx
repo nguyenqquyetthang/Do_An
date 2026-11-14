@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Edit3, ExternalLink, Lock, PlayCircle, PlusCircle, Send, Wand2, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -25,10 +25,17 @@ import { SectionHeading } from "@/components/shared/SectionHeading";
 import { formatDateTime, formatNumber, formatPoints } from "@/lib/format";
 import { useLottery } from "@/store/lottery";
 import type { ProgramStatus } from "@/data/types";
+import { api } from "@/lib/api";
 
 const AdminProgramsPage = () => {
   const { programs, programStats, setProgramStatus, submitProgram, currentUser } = useLottery();
   const [filter, setFilter] = useState<"all" | ProgramStatus>("all");
+  const [operators, setOperators] = useState<Awaited<ReturnType<typeof api.adminDrawOperators>>>([]);
+
+  useEffect(() => {
+    if (currentUser?.role !== "ADMIN") return;
+    void api.adminDrawOperators().then(setOperators).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải danh sách ban tổ chức."));
+  }, [currentUser?.role]);
 
   const visible = programs.filter((program) => filter === "all" || program.status === filter);
 
@@ -81,6 +88,7 @@ const AdminProgramsPage = () => {
               <TableHead className="text-[12px] uppercase tracking-[0.08em]">Vé đã bán</TableHead>
               <TableHead className="text-[12px] uppercase tracking-[0.08em]">Giá / số</TableHead>
               <TableHead className="text-[12px] uppercase tracking-[0.08em]">Trạng thái</TableHead>
+              {currentUser?.role === "ADMIN" && <TableHead className="text-[12px] uppercase tracking-[0.08em]">Ban tổ chức quay</TableHead>}
               <TableHead className="text-right text-[12px] uppercase tracking-[0.08em]">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
@@ -112,6 +120,14 @@ const AdminProgramsPage = () => {
                       </span>
                     )}
                   </TableCell>
+                  {currentUser?.role === "ADMIN" && <TableCell>
+                    <Select onValueChange={(value) => void api.assignDrawOperator(program.id, Number(value)).then(() => toast.success("Đã phân công ban tổ chức quay thưởng.")).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể phân công."))}>
+                      <SelectTrigger className="w-48"><SelectValue placeholder="Chọn tài khoản" /></SelectTrigger>
+                      <SelectContent>
+                        {operators.map((operator) => <SelectItem key={operator.user_id} value={String(operator.user_id)}>{operator.full_name} · {operator.username}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>}
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       {currentUser?.role === "ORGANIZER" && (program.status === "draft" || program.status === "rejected") && (

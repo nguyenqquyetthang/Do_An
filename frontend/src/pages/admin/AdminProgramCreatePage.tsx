@@ -148,12 +148,8 @@ const AdminProgramCreatePage = () => {
       mediaName: media?.name,
       mediaKind: media?.kind,
       mediaSize: media?.size,
-<<<<<<< HEAD
-      publish,
-=======
       mediaUrl: media?.url,
       publish: false,
->>>>>>> 0b3d672 (07/11/2026)
     });
     toast.success(
       publish ? `Đã công bố chương trình ${program.code}.` : `Đã lưu nháp chương trình ${program.code}.`,

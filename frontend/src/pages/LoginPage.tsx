@@ -24,8 +24,6 @@ const LoginPage = () => {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
 
-  const target = useMemo(() => next ?? "/", [next]);
-
   const submit = async (mail: string, pass: string) => {
     if (isRegistering && pass !== confirmPassword) {
       setError("Mật khẩu nhập lại không khớp.");
@@ -58,7 +56,10 @@ const LoginPage = () => {
     }
     setError(null);
     toast.success("Đăng nhập thành công.");
-    navigate(target, { replace: true });
+    const roleTarget = result.userRole === "ADMIN" || result.userRole === "ORGANIZER" || result.userRole === "DRAW_OPERATOR"
+      ? "/quan-tri"
+      : "/";
+    navigate(next ?? roleTarget, { replace: true });
     setIsSubmitting(false);
   };
 

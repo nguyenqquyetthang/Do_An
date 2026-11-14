@@ -54,7 +54,7 @@ export interface NewProgramInput {
 
 interface LotteryContextValue extends AppState {
   currentUser: DemoUser | null;
-  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string; userRole?: DemoUser["role"] }>;
   updateProfile: (input: { fullName: string; email: string; phone?: string; address?: string; province?: string; district?: string; ward?: string }) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   getProgram: (id: string) => Program | undefined;
@@ -125,14 +125,6 @@ function normalizeProgram(program: Program): Program {
   }
 
   const mappedStatus: Program["status"] =
-<<<<<<< HEAD
-    computedStatus === "active" || computedStatus === "drawing" ? "active"
-      : computedStatus === "upcoming" || computedStatus === "published" ? "upcoming"
-      : computedStatus === "ended" || computedStatus === "completed" || computedStatus === "closed" || computedStatus === "cancelled" ? "ended"
-      : computedStatus === "draft" || computedStatus === "pending_review" || computedStatus === "rejected"
-        ? computedStatus
-        : "draft";
-=======
     status === "published" ? "upcoming"
       : status === "drawing" ? "active"
       : status === "completed" ? "published"
@@ -140,7 +132,6 @@ function normalizeProgram(program: Program): Program {
       : status === "draft" || status === "pending_review" || status === "rejected"
         ? status
         : status === "active" || status === "upcoming" || status === "ended" ? status : "draft";
->>>>>>> 0b3d672 (07/11/2026)
 
   return {
     id: String(raw.program_id),
@@ -217,14 +208,9 @@ function normalizeOrder(order: any, currentUser: DemoUser): Order {
       : Date.now() + HOLD_DURATION_MS;
 
   return {
-<<<<<<< HEAD
-    id: String(order?.order_id ?? order?.id ?? ""),
-    programId,
-=======
     id: String(order.order_id),
     orderCode: order.order_code,
     programId: String(firstTicket?.programId ?? ""),
->>>>>>> 0b3d672 (07/11/2026)
     userId: currentUser.id,
     userName: currentUser.name,
     numbers,
@@ -292,29 +278,16 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-<<<<<<< HEAD
     let fetchSeq = 0;
-
     const loadData = async () => {
       const currentSeq = ++fetchSeq;
       try {
-        const programs = await (
-          currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
+        const programs = await (currentUser?.role === "DRAW_OPERATOR"
+          ? api.operatorPrograms()
+          : currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
             ? api.getAdminPrograms()
-            : api.getPrograms()
-        );
-        // Tránh race condition: nếu có request mới hơn hoặc component đã unmount thì bỏ qua
-        if (!active || currentSeq !== fetchSeq) return;
-
-=======
-    (currentUser?.role === "DRAW_OPERATOR"
-      ? api.operatorPrograms()
-      : currentUser && (currentUser.role === "ADMIN" || currentUser.role === "ORGANIZER")
-        ? api.getAdminPrograms()
-        : api.getPrograms())
-      .then(async (programs) => {
+            : api.getPrograms());
         if (!active) return;
->>>>>>> 0b3d672 (07/11/2026)
         const normalizedPrograms = programs.map(normalizeProgram);
         const ticketEntries = await Promise.all(
           normalizedPrograms.map(async (program) => [program.id, await api.tickets(program.id)] as const),
@@ -438,7 +411,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
         users: [...previous.users.filter((item) => item.id !== normalizedUser.id), normalizedUser],
       }));
       setCurrentUserId(normalizedUser.id);
-      return { ok: true };
+      return { ok: true, userRole: normalizedUser.role };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Đăng nhập không thành công." };
     }

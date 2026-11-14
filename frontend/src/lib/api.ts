@@ -239,7 +239,46 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  operatorPrograms: () => request<Array<Record<string, unknown>>>("/operator/programs"),
+  adminDrawOperators: () => request<Array<{ user_id: number; username: string; full_name: string; email: string }>>("/admin/draw-operators"),
+  assignDrawOperator: (programId: string, operatorUserId: number) =>
+    request<Record<string, unknown>>(`/admin/programs/${programId}/operators`, {
+      method: "POST",
+      body: JSON.stringify({ operatorUserId }),
+    }),
+  operatorPrograms: () => request<Array<import("@/data/types").Program & {
+    program_id: number;
+    program_code: string;
+    program_name: string;
+    status: string;
+    draw_time?: string | null;
+    draw_status?: string | null;
+  }>>("/operator/programs"),
+  operatorProgramOverview: (programId: string) => request<{
+    program_id: number;
+    program_code: string;
+    program_name: string;
+    description?: string | null;
+    rules?: string | null;
+    ticket_price: string | number;
+    total_tickets: number;
+    start_time?: string | null;
+    end_time?: string | null;
+    draw_time?: string | null;
+    status: string;
+    prizes: Array<{ prizeId: number; name: string; type: string; quantity: number; estimatedValue: string | number }>;
+    eligible_ticket_count: number;
+    pending_order_count: number;
+    already_drawn: boolean;
+    checks: { ended: boolean; noPendingOrders: boolean; hasEligibleTickets: boolean; hasPrizes: boolean; notDrawn: boolean };
+  }>(`/operator/programs/${programId}/overview`),
+  operatorProgramTickets: (programId: string) => request<Array<{
+    ticket_id: number;
+    ticket_number: string;
+    price: string | number;
+    order_code: string;
+    owner_name: string;
+    paid_at: string;
+  }>>(`/operator/programs/${programId}/tickets`),
   operatorStats: () => request<{
     assigned: number;
     drawn: number;
@@ -285,6 +324,15 @@ export const api = {
     winner_count: number;
     algorithm_version: string;
   }>>("/operator/draws"),
+  operatorAudit: () => request<Array<{
+    audit_id: number;
+    action: string;
+    entity_type: string;
+    entity_id?: string;
+    new_data?: Record<string, unknown>;
+    created_at: string;
+    actor_name?: string;
+  }>>("/operator/audit"),
   drawProgram: (programId: string, seed: string) =>
     request<Record<string, unknown>>(`/admin/programs/${programId}/draw`, {
       method: "POST",
