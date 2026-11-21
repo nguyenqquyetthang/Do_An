@@ -672,7 +672,10 @@ app.get('/api/results', asyncRoute(async (_request, response) => {
 app.get('/api/organizer/programs', requireAuth, requireProgramManager, asyncRoute(async (request, response) => {
   await syncProgramStatuses();
   const result = await pool.query(
-    `SELECT p.*, COUNT(t.ticket_id) FILTER (WHERE t.status IN ('held', 'sold'))::int AS reserved_tickets
+    `SELECT p.*,
+            (SELECT operator_user_id FROM program_draw_operators
+             WHERE program_id = p.program_id ORDER BY assignment_id DESC LIMIT 1) AS assigned_operator_id,
+            COUNT(t.ticket_id) FILTER (WHERE t.status IN ('held', 'sold'))::int AS reserved_tickets
      FROM lottery_programs p
      LEFT JOIN lottery_tickets t ON t.program_id = p.program_id
      WHERE $1 = 'ADMIN' OR p.created_by = $2
@@ -1001,19 +1004,36 @@ app.get('/api/operator/audit', requireAuth, requireDrawOperator, asyncRoute(asyn
 
 app.post('/api/admin/programs/:programId/operators', requireAuth, requireAdmin, asyncRoute(async (request, response) => {
   const input = z.object({ operatorUserId: z.number().int().positive() }).parse(request.body);
-  const result = await pool.query(
-    `INSERT INTO program_draw_operators (program_id, operator_user_id, assigned_by)
-     SELECT $1, u.user_id, $3
-     FROM users u JOIN roles r ON r.role_id = u.role_id
-     WHERE u.user_id = $2 AND u.status = 'active' AND r.role_name = 'DRAW_OPERATOR'
-     ON CONFLICT (program_id, operator_user_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by,
-       assigned_at = CURRENT_TIMESTAMP
-     RETURNING *`,
-    [request.params.programId, input.operatorUserId, request.user?.userId],
+  const program = await pool.query('SELECT program_id FROM lottery_programs WHERE program_id = $1', [request.params.programId]);
+  if (!program.rows[0]) {
+    response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+    return;
+  }
+  const operator = await pool.query(
+    `SELECT u.user_id FROM users u JOIN roles r ON r.role_id = u.role_id
+     WHERE u.user_id = $1 AND u.status = 'active' AND r.role_name = 'DRAW_OPERATOR'`,
+    [input.operatorUserId],
   );
-  if (!result.rows[0]) {
+  if (!operator.rows[0]) {
     response.status(400).json({ error: 'Tài khoản không phải DRAW_OPERATOR hoặc chương trình không tồn tại.' });
     return;
+  }
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM program_draw_operators WHERE program_id = $1', [request.params.programId]);
+    result = await client.query(
+      `INSERT INTO program_draw_operators (program_id, operator_user_id, assigned_by)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [request.params.programId, input.operatorUserId, request.user?.userId],
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
   await pool.query(
     `INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, new_data)
@@ -1322,6 +1342,29 @@ app.patch('/api/admin/programs/:programId/status', requireAuth, requireAdmin, as
   if (input.status === 'rejected' && !input.rejectionReason) {
     response.status(400).json({ error: 'Vui lòng nhập lý do từ chối chương trình.' });
     return;
+  }
+  if (input.status === 'upcoming' || input.status === 'active') {
+    const review = await pool.query(
+      `SELECT p.status,
+              EXISTS (
+                SELECT 1 FROM program_draw_operators a
+                WHERE a.program_id = p.program_id
+              ) AS has_operator
+       FROM lottery_programs p WHERE p.program_id = $1`,
+      [request.params.programId],
+    );
+    if (!review.rows[0]) {
+      response.status(404).json({ error: 'Không tìm thấy chương trình.' });
+      return;
+    }
+    if (review.rows[0].status !== 'pending_review') {
+      response.status(409).json({ error: 'Chỉ chương trình đang chờ duyệt mới có thể được duyệt.' });
+      return;
+    }
+    if (!review.rows[0].has_operator) {
+      response.status(409).json({ error: 'Vui lòng phân công ban tổ chức quay thưởng trước khi duyệt.' });
+      return;
+    }
   }
   const result = await pool.query(
     `UPDATE lottery_programs

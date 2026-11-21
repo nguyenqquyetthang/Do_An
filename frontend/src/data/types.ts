@@ -48,6 +48,7 @@ export interface Program {
   drawnAt?: string;
   publishedAt?: string;
   status: ProgramStatus;
+  drawOperatorId?: string;
   rejectionReason?: string;
   category: PrizeCategory;
   drawMethod: string;

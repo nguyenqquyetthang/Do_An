@@ -125,13 +125,16 @@ function normalizeProgram(program: Program): Program {
   }
 
   const mappedStatus: Program["status"] =
-    status === "published" ? "upcoming"
-      : status === "drawing" ? "active"
-      : status === "completed" ? "published"
-      : status === "closed" || status === "cancelled" ? "ended"
-      : status === "draft" || status === "pending_review" || status === "rejected"
-        ? status
-        : status === "active" || status === "upcoming" || status === "ended" ? status : "draft";
+    computedStatus === "published" ? "upcoming"
+      : computedStatus === "drawing" ? "active"
+      : computedStatus === "completed" ? "published"
+      : computedStatus === "closed" || computedStatus === "cancelled" ? "closed"
+      : computedStatus === "suspended" ? "suspended"
+      : computedStatus === "draft" || computedStatus === "pending_review" || computedStatus === "rejected"
+        ? computedStatus
+        : computedStatus === "active" || computedStatus === "upcoming" || computedStatus === "ended"
+          ? computedStatus
+          : "draft";
 
   return {
     id: String(raw.program_id),
@@ -156,6 +159,7 @@ function normalizeProgram(program: Program): Program {
     drawnAt: raw.draw_time ? String(raw.draw_time) : undefined,
     publishedAt: raw.published_at ? String(raw.published_at) : rawWinners.length > 0 ? String(raw.draw_completed_at ?? raw.draw_time ?? new Date().toISOString()) : undefined,
     status: mappedStatus,
+    drawOperatorId: raw.assigned_operator_id ? String(raw.assigned_operator_id) : undefined,
     rejectionReason: raw.rejection_reason ? String(raw.rejection_reason) : undefined,
     category: "other",
     drawMethod: "SHA-256",
@@ -569,12 +573,9 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
 
   const createProgram = useCallback<LotteryContextValue["createProgram"]>(
     async (input) => {
-      const isAdmin = currentUser?.role === "ADMIN";
       const initialStatus = !input.publish
         ? "draft"
-        : isAdmin
-          ? (new Date(input.startAt).getTime() <= Date.now() ? "active" : "upcoming")
-          : "pending_review";
+        : "pending_review";
 
       const created = await api.createProgram({
         programCode: `P-${Date.now()}`,
@@ -598,7 +599,7 @@ export function LotteryProvider({ children }: { children: ReactNode }) {
       }));
       return program;
     },
-    [currentUser?.role],
+    [],
   );
 
   const setProgramStatus = useCallback<LotteryContextValue["setProgramStatus"]>(async (programId, status, rejectionReason) => {

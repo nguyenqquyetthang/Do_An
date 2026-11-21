@@ -31,11 +31,22 @@ const AdminProgramsPage = () => {
   const { programs, programStats, setProgramStatus, submitProgram, currentUser } = useLottery();
   const [filter, setFilter] = useState<"all" | ProgramStatus>("all");
   const [operators, setOperators] = useState<Awaited<ReturnType<typeof api.adminDrawOperators>>>([]);
+  const [assignedOperators, setAssignedOperators] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (currentUser?.role !== "ADMIN") return;
     void api.adminDrawOperators().then(setOperators).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải danh sách ban tổ chức."));
   }, [currentUser?.role]);
+
+  useEffect(() => {
+    setAssignedOperators((previous) => {
+      const next = { ...previous };
+      programs.forEach((program) => {
+        if (program.drawOperatorId) next[program.id] = program.drawOperatorId;
+      });
+      return next;
+    });
+  }, [programs]);
 
   const visible = programs.filter((program) => filter === "all" || program.status === filter);
 
@@ -89,6 +100,7 @@ const AdminProgramsPage = () => {
               <TableHead className="text-[12px] uppercase tracking-[0.08em]">Giá / số</TableHead>
               <TableHead className="text-[12px] uppercase tracking-[0.08em]">Trạng thái</TableHead>
               {currentUser?.role === "ADMIN" && <TableHead className="text-[12px] uppercase tracking-[0.08em]">Ban tổ chức quay</TableHead>}
+              {currentUser?.role === "ADMIN" && <TableHead className="text-[12px] uppercase tracking-[0.08em]">Phê duyệt</TableHead>}
               <TableHead className="text-right text-[12px] uppercase tracking-[0.08em]">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
@@ -121,12 +133,55 @@ const AdminProgramsPage = () => {
                     )}
                   </TableCell>
                   {currentUser?.role === "ADMIN" && <TableCell>
-                    <Select onValueChange={(value) => void api.assignDrawOperator(program.id, Number(value)).then(() => toast.success("Đã phân công ban tổ chức quay thưởng.")).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể phân công."))}>
+                    <Select
+                      value={assignedOperators[program.id] ?? undefined}
+                      onValueChange={(value) => void api.assignDrawOperator(program.id, Number(value))
+                        .then(() => {
+                          setAssignedOperators((previous) => ({ ...previous, [program.id]: value }));
+                          toast.success("Đã phân công ban tổ chức quay thưởng.");
+                        })
+                        .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể phân công."))}
+                    >
                       <SelectTrigger className="w-48"><SelectValue placeholder="Chọn tài khoản" /></SelectTrigger>
                       <SelectContent>
                         {operators.map((operator) => <SelectItem key={operator.user_id} value={String(operator.user_id)}>{operator.full_name} · {operator.username}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </TableCell>}
+                  {currentUser?.role === "ADMIN" && <TableCell>
+                    {program.status === "pending_review" ? (
+                      <div className="flex min-w-40 flex-col gap-2">
+                        <Button
+                          size="sm"
+                          disabled={!assignedOperators[program.id]}
+                          title={!assignedOperators[program.id] ? "Hãy chọn ban tổ chức quay thưởng trước" : undefined}
+                          onClick={() => {
+                            void setProgramStatus(program.id, "upcoming")
+                              .then(() => toast.success(`${program.code} đã được duyệt và chuyển sang sắp mở.`))
+                              .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể duyệt."));
+                          }}
+                        >
+                          <PlayCircle className="h-3.5 w-3.5" />
+                          Duyệt chương trình này
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => {
+                            const reason = window.prompt(`Nhập lý do từ chối chương trình ${program.code}:`);
+                            if (!reason?.trim()) return;
+                            void setProgramStatus(program.id, "rejected", reason.trim())
+                              .then(() => toast.success(`${program.code} đã bị từ chối.`))
+                              .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể từ chối."));
+                          }}
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          Từ chối chương trình này
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-[12px] text-muted-foreground">Không cần duyệt</span>
+                    )}
                   </TableCell>}
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
@@ -144,19 +199,6 @@ const AdminProgramsPage = () => {
                           Gửi duyệt
                         </Button>
                       )}
-                      {currentUser?.role === "ADMIN" && program.status === "pending_review" && (
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            void setProgramStatus(program.id, "upcoming")
-                              .then(() => toast.success(`${program.code} đã được duyệt và chuyển sang sắp mở.`))
-                              .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể duyệt."));
-                          }}
-                        >
-                          <PlayCircle className="h-3.5 w-3.5" />
-                          Duyệt
-                        </Button>
-                      )}
                       {currentUser?.role === "ADMIN" && ["upcoming", "active", "closed"].includes(program.status) && (
                         <Button size="sm" variant="danger" onClick={() => {
                           void setProgramStatus(program.id, "suspended").then(() => toast.success(`${program.code} đã được tạm dừng.`)).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tạm dừng."));
@@ -169,22 +211,6 @@ const AdminProgramsPage = () => {
                           const reason = window.prompt("Nhập lý do yêu cầu xử lý/quay lại:");
                           if (reason?.trim()) void import("@/lib/api").then(({ api }) => api.adminRerunRequest(program.id, reason.trim())).then(() => toast.success("Đã lập yêu cầu, kết quả cũ vẫn được giữ nguyên.")).catch((error) => toast.error(error instanceof Error ? error.message : "Không thể lập yêu cầu."));
                         }}>Yêu cầu xử lý lại</Button>
-                      )}
-                      {currentUser?.role === "ADMIN" && program.status === "pending_review" && (
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            const reason = window.prompt("Nhập lý do từ chối chương trình:");
-                            if (!reason?.trim()) return;
-                            void setProgramStatus(program.id, "rejected", reason.trim())
-                              .then(() => toast.success(`${program.code} đã bị từ chối.`))
-                              .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể từ chối."));
-                          }}
-                        >
-                          <XCircle className="h-3.5 w-3.5" />
-                          Từ chối
-                        </Button>
                       )}
                       {program.status === "active" && (
                         <Button

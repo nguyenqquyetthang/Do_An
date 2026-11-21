@@ -149,10 +149,10 @@ const AdminProgramCreatePage = () => {
       mediaKind: media?.kind,
       mediaSize: media?.size,
       mediaUrl: media?.url,
-      publish: false,
+      publish,
     });
     toast.success(
-      publish ? `Đã công bố chương trình ${program.code}.` : `Đã lưu nháp chương trình ${program.code}.`,
+      publish ? `Chương trình ${program.code} đã gửi Admin duyệt.` : `Đã lưu nháp chương trình ${program.code}.`,
     );
     navigate("/quan-tri/chuong-trinh");
   };
@@ -171,7 +171,7 @@ const AdminProgramCreatePage = () => {
             </Button>
             <Button onClick={() => submit(true)}>
               <UploadCloud className="h-4 w-4" />
-              Công bố & mở bán
+              Gửi duyệt
             </Button>
           </div>
         }
